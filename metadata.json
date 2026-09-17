@@ -1,0 +1,8 @@
+{
+  "name": "JFT Socials",
+  "description": "Futuristic social media growth infrastructure platform with real-time order tracking, multi-currency wallet, Peakerr provider integration, and intelligent pricing engine.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

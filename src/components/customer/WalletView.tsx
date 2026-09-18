@@ -17,7 +17,7 @@ import { useApp } from '../../context/AppContext.js';
 import { Currency, Transaction } from '../../types/index.js';
 
 export const WalletView: React.FC = () => {
-  const { user, token, wallets, refreshUserData, showToast } = useApp();
+  const { user, token, wallets, settings, refreshUserData, showToast } = useApp();
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loadingTx, setLoadingTx] = useState(false);
@@ -36,7 +36,7 @@ export const WalletView: React.FC = () => {
   const [isSubmittingUsdt, setIsSubmittingUsdt] = useState(false);
   const [copiedAddress, setCopiedAddress] = useState(false);
 
-  const usdtDepositAddress = 'TY2b84N8xL9pG7wV4d5F6zQ1mK3s9R8tJa'; // Verified TRC-20 Platform Address
+  const usdtDepositAddress = settings?.usdt_trc20_address || '';
 
   const ngnWallet = wallets.find(w => w.currency === 'NGN');
   const usdtWallet = wallets.find(w => w.currency === 'USDT');
@@ -67,14 +67,26 @@ export const WalletView: React.FC = () => {
   // Handle Paystack Deposit
   const handlePaystackDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!token || ngnDepositAmount < 1000) {
-      showToast('Minimum deposit is ₦1,000.', 'error');
+    const minDeposit = settings?.min_deposit_ngn ?? 100;
+    if (!token || ngnDepositAmount < minDeposit) {
+      showToast(`Minimum deposit is ₦${minDeposit.toLocaleString()}.`, 'error');
+      return;
+    }
+
+    const publicKey = settings?.paystack_public_key;
+    if (!publicKey) {
+      showToast('Payment provider is not configured. Please contact support.', 'error');
+      return;
+    }
+
+    if (typeof (window as any).PaystackPop === 'undefined') {
+      showToast('Payment SDK failed to load. Please refresh the page and try again.', 'error');
       return;
     }
 
     setIsDepositingPaystack(true);
     try {
-      // 1. Initialize deposit with Paystack
+      // 1. Initialize deposit record + get a reference from our own server
       const initRes = await fetch('/api/payments/paystack/initialize', {
         method: 'POST',
         headers: {
@@ -83,44 +95,51 @@ export const WalletView: React.FC = () => {
         },
         body: JSON.stringify({ amount: ngnDepositAmount })
       });
-      const initText = await initRes.text();
-      let initData: any = null;
-      try {
-        initData = JSON.parse(initText);
-      } catch {
-        throw new Error('Server returned an unexpected response during Paystack initialization.');
-      }
+      const initData = await initRes.json().catch(() => null);
 
-      if (!initRes.ok || !initData.success) {
+      if (!initRes.ok || !initData?.success) {
         showToast(initData?.error || 'Failed to initialize Paystack deposit.', 'error');
         setIsDepositingPaystack(false);
         return;
       }
 
-      // 2. In demo/development sandbox, verify reference immediately
-      const verifyRes = await fetch(`/api/payments/paystack/verify/${encodeURIComponent(initData.reference)}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      // 2. Open the real Paystack popup and let the user actually pay
+      const handler = (window as any).PaystackPop.setup({
+        key: publicKey,
+        email: initData.email,
+        amount: Math.round(initData.amount * 100), // Paystack expects kobo
+        currency: 'NGN',
+        ref: initData.reference,
+        callback: (response: any) => {
+          // 3. Only now, after Paystack confirms the popup succeeded, ask our
+          // server to independently verify against Paystack's API and credit the wallet.
+          fetch(`/api/payments/paystack/verify/${encodeURIComponent(response.reference)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+            .then(res => res.json())
+            .then(verifyData => {
+              if (verifyData?.success) {
+                showToast(`₦${ngnDepositAmount.toLocaleString()} credited to your NGN wallet!`, 'success');
+                setShowPaystackModal(false);
+                refreshUserData();
+                fetchTransactions();
+              } else {
+                showToast(verifyData?.error || 'Payment verification failed. If you were charged, contact support with your reference.', 'error');
+              }
+            })
+            .catch(() => {
+              showToast('Could not confirm payment with our server. If you were charged, contact support with your reference.', 'error');
+            })
+            .finally(() => setIsDepositingPaystack(false));
+        },
+        onClose: () => {
+          setIsDepositingPaystack(false);
+        }
       });
-      const verifyText = await verifyRes.text();
-      let verifyData: any = null;
-      try {
-        verifyData = JSON.parse(verifyText);
-      } catch {
-        throw new Error('Server returned an unexpected response during payment verification.');
-      }
 
-      if (!verifyRes.ok || !verifyData.success) {
-        showToast(verifyData?.error || 'Payment verification failed.', 'error');
-        return;
-      }
-
-      showToast(`₦${ngnDepositAmount.toLocaleString()} credited to your NGN wallet!`, 'success');
-      setShowPaystackModal(false);
-      await refreshUserData();
-      await fetchTransactions();
+      handler.openIframe();
     } catch (err: any) {
       showToast(err.message || 'Error executing payment.', 'error');
-    } finally {
       setIsDepositingPaystack(false);
     }
   };
@@ -169,6 +188,10 @@ export const WalletView: React.FC = () => {
   };
 
   const copyAddress = () => {
+    if (!usdtDepositAddress) {
+      showToast('Deposit address is not configured yet. Please contact support.', 'error');
+      return;
+    }
     navigator.clipboard.writeText(usdtDepositAddress);
     setCopiedAddress(true);
     showToast('Platform USDT address copied to clipboard.', 'info');
@@ -221,7 +244,7 @@ export const WalletView: React.FC = () => {
           <div className="pt-2">
             <div className="text-[11px] text-slate-400">Available Balance</div>
             <div className="text-3xl font-extrabold font-mono text-white tracking-tight">
-              ₦{ngnWallet?.available_balance.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}
+              ₦{ngnWallet?.available_balance?.toLocaleString('en-US', { minimumFractionDigits: 2 }) ?? '0.00'}
             </div>
           </div>
 
@@ -256,7 +279,7 @@ export const WalletView: React.FC = () => {
           <div className="pt-2">
             <div className="text-[11px] text-slate-400">Available Balance</div>
             <div className="text-3xl font-extrabold font-mono text-emerald-400 tracking-tight">
-              {usdtWallet?.available_balance.toFixed(2) || '0.00'}{' '}
+              {usdtWallet?.available_balance !== undefined ? usdtWallet.available_balance.toFixed(2) : '0.00'}{' '}
               <span className="text-xs text-slate-400 font-normal">USDT</span>
             </div>
           </div>
@@ -379,8 +402,8 @@ export const WalletView: React.FC = () => {
                 </label>
                 <input
                   type="number"
-                  min={1000}
-                  step={500}
+                  min={settings?.min_deposit_ngn ?? 100}
+                  step={100}
                   required
                   value={ngnDepositAmount}
                   onChange={e => setNgnDepositAmount(Number(e.target.value))}
@@ -389,13 +412,13 @@ export const WalletView: React.FC = () => {
               </div>
 
               {/* Quick Select Buttons */}
-              <div className="grid grid-cols-4 gap-2">
-                {[2000, 5000, 10000, 25000].map(val => (
+              <div className="grid grid-cols-5 gap-2">
+                {[100, 500, 2000, 5000, 10000].map(val => (
                   <button
                     key={val}
                     type="button"
                     onClick={() => setNgnDepositAmount(val)}
-                    className="py-1 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-[11px] font-mono text-slate-300 transition"
+                    className="py-1 px-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-[10px] font-mono text-slate-300 transition text-center"
                   >
                     ₦{val.toLocaleString()}
                   </button>
@@ -420,7 +443,7 @@ export const WalletView: React.FC = () => {
 
               <button
                 type="submit"
-                disabled={isDepositingPaystack || ngnDepositAmount < 1000}
+                disabled={isDepositingPaystack || ngnDepositAmount < (settings?.min_deposit_ngn ?? 100)}
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white font-bold text-xs shadow-lg shadow-indigo-500/25 transition cursor-pointer flex items-center justify-center gap-2"
               >
                 {isDepositingPaystack ? (
@@ -464,13 +487,14 @@ export const WalletView: React.FC = () => {
                 Official TRC-20 Deposit Address
               </div>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-xs text-emerald-400 font-semibold truncate">
-                  {usdtDepositAddress}
+                <span className={`font-mono text-xs font-semibold truncate ${usdtDepositAddress ? 'text-emerald-400' : 'text-slate-500 italic'}`}>
+                  {usdtDepositAddress || 'Deposit address loading or not configured...'}
                 </span>
                 <button
                   type="button"
                   onClick={copyAddress}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
+                  disabled={!usdtDepositAddress}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 transition cursor-pointer"
                   title="Copy TRC-20 Address"
                 >
                   {copiedAddress ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
@@ -514,8 +538,8 @@ export const WalletView: React.FC = () => {
 
               <button
                 type="submit"
-                disabled={isSubmittingUsdt}
-                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/25 transition cursor-pointer flex items-center justify-center gap-2"
+                disabled={isSubmittingUsdt || !usdtDepositAddress}
+                className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs shadow-lg shadow-emerald-600/25 transition cursor-pointer flex items-center justify-center gap-2"
               >
                 {isSubmittingUsdt ? (
                   <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />

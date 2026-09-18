@@ -52,6 +52,8 @@ export class PeakerrClient implements ServiceProvider {
   private apiUrl: string = 'https://peakerr.com/api/v2';
   private mockOrderCounter: number = 248000;
   private mockRefillCounter: number = 9400;
+  private authSuspended: boolean = false;
+  private lastAuthError?: string;
 
   constructor(apiKey?: string) {
     this.apiKey = apiKey || process.env.PEAKERR_API_KEY || '';
@@ -59,10 +61,27 @@ export class PeakerrClient implements ServiceProvider {
 
   public setApiKey(key: string) {
     this.apiKey = key;
+    this.authSuspended = false;
+    this.lastAuthError = undefined;
   }
 
   public isLive(): boolean {
-    return Boolean(this.apiKey && this.apiKey.trim().length > 8 && !this.apiKey.startsWith('demo_'));
+    if (!this.apiKey) return false;
+    const clean = this.apiKey.trim().toLowerCase();
+    if (clean.length <= 8) return false;
+    if (
+      clean.startsWith('demo_') ||
+      clean.startsWith('mock_') ||
+      clean.startsWith('test_') ||
+      clean.includes('test') ||
+      clean.includes('placeholder') ||
+      clean.includes('dummy') ||
+      clean.includes('example') ||
+      clean.includes('sample')
+    ) {
+      return false;
+    }
+    return !this.authSuspended;
   }
 
   private async request<T>(params: Record<string, string | number>): Promise<T> {
@@ -89,6 +108,11 @@ export class PeakerrClient implements ServiceProvider {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          this.authSuspended = true;
+          this.lastAuthError = `Peakerr API authentication rejected (HTTP ${response.status}). Operating in simulated sandbox mode until a valid API key is saved.`;
+          console.info(`[PeakerrClient] ${this.lastAuthError}`);
+        }
         throw new Error(`Peakerr API HTTP error: ${response.status} ${response.statusText}`);
       }
 
@@ -107,8 +131,8 @@ export class PeakerrClient implements ServiceProvider {
         if (Array.isArray(services) && services.length > 0) {
           return services;
         }
-      } catch (e) {
-        console.warn('[PeakerrClient] Live API request failed, falling back to local cached catalog:', e);
+      } catch (e: any) {
+        console.info(`[PeakerrClient] Upstream catalog request ended (${e?.message || 'offline'}), using cached institutional catalog.`);
       }
     }
 

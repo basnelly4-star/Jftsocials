@@ -12,15 +12,19 @@ import { LandingPage } from './components/public/LandingPage.js';
 // Customer Views
 import { CustomerDashboard } from './components/customer/CustomerDashboard.js';
 import { NewOrderView } from './components/customer/NewOrderView.js';
+import { VirtualNumbersView } from './components/customer/VirtualNumbersView.js';
 import { OrdersView } from './components/customer/OrdersView.js';
 import { ServicesView } from './components/customer/ServicesView.js';
 import { WalletView } from './components/customer/WalletView.js';
 import { SupportView } from './components/customer/SupportView.js';
 import { ProfileView } from './components/customer/ProfileView.js';
+import { AccountsStoreView } from './components/customer/AccountsStoreView.js';
+import { MyAccountsView } from './components/customer/MyAccountsView.js';
 
 // Admin Views
 import { AdminDashboard } from './components/admin/AdminDashboard.js';
 import { AdminOrdersView } from './components/admin/AdminOrdersView.js';
+import { AdminAccountsView } from './components/admin/AdminAccountsView.js';
 import { AdminServicesView } from './components/admin/AdminServicesView.js';
 import { AdminPricingView } from './components/admin/AdminPricingView.js';
 import { AdminPaymentsView } from './components/admin/AdminPaymentsView.js';
@@ -46,6 +50,12 @@ const MainLayout: React.FC = () => {
         return <CustomerDashboard />;
       case 'new-order':
         return <NewOrderView />;
+      case 'virtual-numbers':
+        return <VirtualNumbersView />;
+      case 'accounts-store':
+        return <AccountsStoreView />;
+      case 'my-accounts':
+        return <MyAccountsView />;
       case 'orders':
         return <OrdersView />;
       case 'services':
@@ -62,6 +72,8 @@ const MainLayout: React.FC = () => {
         return <AdminDashboard />;
       case 'admin-orders':
         return <AdminOrdersView />;
+      case 'admin-accounts':
+        return <AdminAccountsView />;
       case 'admin-services':
         return <AdminServicesView />;
       case 'admin-pricing':

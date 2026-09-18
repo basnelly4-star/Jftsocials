@@ -115,6 +115,9 @@ export interface Order {
   refunded_at?: string;
   refund_reason?: string;
   refund_admin_id?: string;
+  dispatch_attempts?: number;
+  last_dispatch_attempt_at?: string;
+  provider_service_id?: number;
   created_at: string;
   updated_at: string;
   completed_at?: string;
@@ -186,6 +189,27 @@ export interface AuditLog {
   created_at: string;
 }
 
+export type NumberOrderStatus = 'PENDING' | 'RECEIVED' | 'CANCELED' | 'TIMEOUT' | 'FINISHED' | 'BANNED';
+
+export interface NumberOrder {
+  id: string;                    // our internal id
+  user_id: string;
+  provider_order_id: number;     // 5sim's order id
+  country: string;
+  operator: string;
+  product: string;               // e.g. "facebook", "whatsapp"
+  phone: string;
+  status: NumberOrderStatus;
+  provider_cost: number;         // raw 5sim price, in 5sim's native unit
+  customer_charge: number;       // what we actually debited, in `currency`
+  currency: Currency;
+  sms_code: string | null;
+  sms_text: string | null;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SystemSettings {
   platform_name: string;
   primary_domain: string;
@@ -201,10 +225,19 @@ export interface SystemSettings {
   max_deposit_usdt: number;
   usdt_trc20_address: string;
   usdt_network: string;
+  paystack_public_key?: string;
   maintenance_mode: boolean;
   maintenance_message: string;
   peakerr_api_url: string;
   peakerr_key_configured: boolean;
+  peakerr_api_key_encrypted?: string;
+  eagainsmedia_api_url?: string;
+  eagainsmedia_key_configured?: boolean;
+  eagainsmedia_api_key_encrypted?: string;
+  five_sim_rate_to_ngn: number; // 5sim native currency unit -> NGN
+  five_sim_markup_percentage: number; // e.g. 50 for +50%
+  fivesim_key_configured?: boolean;
+  fivesim_api_key_encrypted?: string;
   sync_interval_minutes: number;
   low_balance_threshold_usd: number;
 }
@@ -228,4 +261,36 @@ export interface PriceCalculationResult {
   currency: Currency;
   exchange_rate_used: number;
   pricing_rule_version: string;
+}
+
+export interface AccountCategory {
+  id: string;            // e.g. "uk_tiktok"
+  name: string;           // "UK TikTok Account"
+  description?: string;   // shown to customers, e.g. "Aged UK-region TikTok account, email login"
+  price_ngn: number;      // fixed price, e.g. 8000
+  active: boolean;        // hide from the storefront without deleting stock
+  created_at: string;
+}
+
+export interface AccountListing {
+  id: string;
+  category_id: string;
+  status: 'available' | 'sold';
+  email_encrypted: string;
+  password_encrypted: string;
+  sold_to_user_id?: string;
+  sold_order_id?: string;
+  sold_at?: string;
+  added_at: string;
+}
+
+export interface AccountOrder {
+  id: string;
+  user_id: string;
+  category_id: string;
+  category_name: string;   // snapshot at time of purchase, in case the category is renamed later
+  listing_id: string;
+  price_charged: number;
+  currency: Currency;
+  created_at: string;
 }

@@ -9,7 +9,11 @@ import {
   ExternalLink,
   MessageCircle,
   Zap,
-  RotateCw
+  RotateCw,
+  PhoneCall,
+  ShoppingBag,
+  KeyRound,
+  ArrowRight
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.js';
 import { WhatsAppBadge } from '../layout/WhatsAppBadge.js';
@@ -45,21 +49,37 @@ export const CustomerDashboard: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={() => setActiveView('wallet')}
-            className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
+            className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
           >
-            <Wallet className="w-4 h-4 text-cyan-400" />
+            <Wallet className="w-3.5 h-3.5 text-cyan-400" />
             <span>Add Funds</span>
           </button>
 
           <button
-            onClick={() => setActiveView('new-order')}
-            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition cursor-pointer"
+            onClick={() => setActiveView('virtual-numbers')}
+            className="px-3.5 py-2 rounded-xl bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-700/40 text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
           >
-            <PlusCircle className="w-4 h-4" />
-            <span>New Order</span>
+            <PhoneCall className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Virtual Numbers</span>
+          </button>
+
+          <button
+            onClick={() => setActiveView('accounts-store')}
+            className="px-3.5 py-2 rounded-xl bg-purple-950/60 hover:bg-purple-900/60 text-purple-300 border border-purple-700/40 text-xs font-semibold flex items-center gap-2 transition cursor-pointer"
+          >
+            <ShoppingBag className="w-3.5 h-3.5 text-purple-400" />
+            <span>Account Store</span>
+          </button>
+
+          <button
+            onClick={() => setActiveView('new-order')}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition cursor-pointer"
+          >
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>New SMM Order</span>
           </button>
         </div>
       </div>
@@ -73,7 +93,7 @@ export const CustomerDashboard: React.FC = () => {
             <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400">NAIRA</span>
           </div>
           <div className="text-2xl font-bold font-mono text-white">
-            ₦{ngnWallet?.available_balance.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}
+            ₦{ngnWallet?.available_balance?.toLocaleString('en-US', { minimumFractionDigits: 2 }) ?? '0.00'}
           </div>
           <button
             onClick={() => setActiveView('wallet')}
@@ -91,7 +111,7 @@ export const CustomerDashboard: React.FC = () => {
             <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400">TRC-20</span>
           </div>
           <div className="text-2xl font-bold font-mono text-emerald-400">
-            {usdtWallet?.available_balance.toFixed(2) || '0.00'} <span className="text-xs text-slate-400">USDT</span>
+            {usdtWallet?.available_balance !== undefined ? usdtWallet.available_balance.toFixed(2) : '0.00'} <span className="text-xs text-slate-400">USDT</span>
           </div>
           <button
             onClick={() => setActiveView('wallet')}
@@ -128,6 +148,36 @@ export const CustomerDashboard: React.FC = () => {
           <div className="text-[11px] text-slate-400 truncate">
             Total Spent: ₦{totalSpentNGN.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </div>
+        </div>
+      </div>
+
+      {/* Account Store Spotlight Banner */}
+      <div className="p-5 rounded-2xl bg-gradient-to-r from-purple-950/40 via-indigo-950/30 to-slate-900 border border-purple-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="p-3 bg-purple-500/20 border border-purple-500/30 rounded-xl text-purple-300 shrink-0">
+            <ShoppingBag className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-white">Pre-Made Verified Accounts Now Available</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                UK TikTok · ₦8,000
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Aged UK TikTok accounts with email login. Instant credential delivery straight to your dashboard.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setActiveView('accounts-store')}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-purple-600/20 flex items-center gap-1.5"
+          >
+            <span>Browse Accounts</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 

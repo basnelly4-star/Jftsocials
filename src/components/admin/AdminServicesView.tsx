@@ -32,17 +32,21 @@ export const AdminServicesView: React.FC = () => {
     }
   };
 
-  const handleSyncPeakerr = async () => {
+  const handleSyncServices = async (provider = 'all') => {
     if (!token) return;
     setSyncing(true);
     try {
       const res = await fetch('/api/admin/services/sync', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ provider })
       });
       const data = await res.json();
       if (data.success) {
-        showToast(`Synced ${data.count || 0} services from Peakerr API!`, 'success');
+        showToast(`Synced ${data.count || 0} services from ${data.provider || provider} API!`, 'success');
         fetchAdminServices();
       } else {
         showToast(data.error || 'Sync failed.', 'error');
@@ -122,14 +126,30 @@ export const AdminServicesView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={handleSyncPeakerr}
-          disabled={syncing}
-          className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-600/25 cursor-pointer"
-        >
-          <RotateCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
-          <span>{syncing ? 'Syncing...' : 'Sync with Peakerr Node'}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => handleSyncServices('all')}
+            disabled={syncing}
+            className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-indigo-600/25 cursor-pointer"
+          >
+            <RotateCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            <span>{syncing ? 'Syncing...' : 'Sync All Providers'}</span>
+          </button>
+          <button
+            onClick={() => handleSyncServices('peakerr')}
+            disabled={syncing}
+            className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-800 transition cursor-pointer"
+          >
+            Peakerr
+          </button>
+          <button
+            onClick={() => handleSyncServices('eagainsmedia')}
+            disabled={syncing}
+            className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-semibold border border-slate-800 transition cursor-pointer"
+          >
+            Eagainsmedia
+          </button>
+        </div>
       </div>
 
       {/* Search Bar */}
@@ -168,8 +188,15 @@ export const AdminServicesView: React.FC = () => {
                   <tr key={s.id} className="hover:bg-slate-900/40 transition">
                     <td className="py-3.5 px-4 font-mono font-bold text-white whitespace-nowrap">
                       {s.id}
-                      <div className="text-[10px] text-slate-400 font-normal">
-                        Peakerr ID: {s.provider_service_id}
+                      <div className="text-[10px] text-slate-400 font-normal flex items-center gap-1.5 mt-0.5">
+                        <span className={`px-1.5 py-0.2 rounded text-[9px] uppercase font-bold ${
+                          s.provider_id === 'eagainsmedia'
+                            ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/40'
+                            : 'bg-indigo-950/80 text-indigo-400 border border-indigo-800/40'
+                        }`}>
+                          {s.provider_id || 'peakerr'}
+                        </span>
+                        <span>#{s.provider_service_id}</span>
                       </div>
                     </td>
 
@@ -179,15 +206,15 @@ export const AdminServicesView: React.FC = () => {
                     </td>
 
                     <td className="py-3.5 px-4 font-mono text-slate-400 whitespace-nowrap">
-                      ₦{s.provider_rate_per_1000_ngn?.toLocaleString()}
+                      ₦{s.provider_rate_per_1000_ngn?.toLocaleString() ?? '0'}
                     </td>
 
                     <td className="py-3.5 px-4 font-mono font-bold text-white whitespace-nowrap">
-                      ₦{s.selling_price_per_1000_ngn?.toLocaleString()}
+                      ₦{s.selling_price_per_1000_ngn?.toLocaleString() ?? '0'}
                     </td>
 
                     <td className="py-3.5 px-4 font-mono text-[11px] whitespace-nowrap">
-                      {s.min_quantity} - {s.max_quantity.toLocaleString()}
+                      {s.min_quantity} - {s.max_quantity?.toLocaleString() ?? '0'}
                     </td>
 
                     <td className="py-3.5 px-4 whitespace-nowrap">

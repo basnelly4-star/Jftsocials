@@ -138,3 +138,26 @@ export function sanitizePricingForCustomer(calc: PriceCalculationResult) {
     payment_fee: calc.payment_fee
   };
 }
+
+/**
+ * Calculates selling price for single-unit virtual numbers from 5sim.net.
+ */
+export function calculateNumberPrice(
+  providerCostNative: number,
+  currency: Currency,
+  settings: SystemSettings
+): { customerPrice: number; providerCostNGN: number } {
+  if (!settings.five_sim_rate_to_ngn || settings.five_sim_rate_to_ngn <= 0) {
+    throw new Error('5sim exchange rate is not configured. An admin must set it in Settings before virtual numbers can be sold.');
+  }
+  const providerCostNGN = roundMoney(providerCostNative * settings.five_sim_rate_to_ngn);
+  const markup = roundMoney(providerCostNGN * (settings.five_sim_markup_percentage / 100));
+  const customerPriceNGN = roundMoney(providerCostNGN + markup);
+
+  if (currency === 'USDT') {
+    const exchangeRate = settings.exchange_rate_usd_ngn > 0 ? settings.exchange_rate_usd_ngn : 1500;
+    return { customerPrice: roundMoney(customerPriceNGN / exchangeRate), providerCostNGN };
+  }
+  return { customerPrice: customerPriceNGN, providerCostNGN };
+}
+

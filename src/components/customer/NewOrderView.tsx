@@ -293,7 +293,7 @@ export const NewOrderView: React.FC = () => {
               <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                   <span className="text-slate-400">
-                    Limits: <strong className="text-slate-200">{activeService.min_quantity}</strong> min — <strong className="text-slate-200">{activeService.max_quantity.toLocaleString()}</strong> max
+                    Limits: <strong className="text-slate-200">{activeService.min_quantity}</strong> min — <strong className="text-slate-200">{activeService.max_quantity?.toLocaleString() ?? ''}</strong> max
                   </span>
                   <div className="flex items-center gap-2">
                     {activeService.refill_supported && (
@@ -335,7 +335,7 @@ export const NewOrderView: React.FC = () => {
                 <label className="text-xs font-semibold text-slate-300">Quantity</label>
                 {activeService && (
                   <span className="text-[10px] text-slate-400">
-                    Min: {activeService.min_quantity} | Max: {activeService.max_quantity.toLocaleString()}
+                    Min: {activeService.min_quantity} | Max: {activeService.max_quantity?.toLocaleString() ?? ''}
                   </span>
                 )}
               </div>

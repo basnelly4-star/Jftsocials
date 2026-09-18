@@ -1,6 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import dotenv from 'dotenv';
+dotenv.config();
 import {
   User,
   Wallet,
@@ -14,7 +17,11 @@ import {
   NotificationItem,
   AuditLog,
   SystemSettings,
-  Currency
+  Currency,
+  NumberOrder,
+  AccountCategory,
+  AccountListing,
+  AccountOrder
 } from '../src/types/index.js';
 
 interface DatabaseSchema {
@@ -24,6 +31,10 @@ interface DatabaseSchema {
   categories: Category[];
   services: Service[];
   orders: Order[];
+  number_orders?: NumberOrder[];
+  accountCategories?: AccountCategory[];
+  accountListings?: AccountListing[];
+  accountOrders?: AccountOrder[];
   payments: Payment[];
   support_tickets: SupportTicket[];
   support_messages: SupportMessage[];
@@ -45,7 +56,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   payment_fee_percentage: 3,     // 3% payment/deposit fee
   payment_fee_enabled: true,
   exchange_rate_usd_ngn: 1500,   // ₦1,500 = 1 USDT
-  min_deposit_ngn: 1000,
+  min_deposit_ngn: 100,
   max_deposit_ngn: 5000000,
   min_deposit_usdt: 5,
   max_deposit_usdt: 10000,
@@ -55,13 +66,127 @@ const DEFAULT_SETTINGS: SystemSettings = {
   maintenance_message: 'JFT Socials infrastructure upgrade in progress. Order automation services remain protected.',
   peakerr_api_url: 'https://peakerr.com/api/v2',
   peakerr_key_configured: false,
+  eagainsmedia_api_url: 'https://eagainsmedia.com/api/v2',
+  eagainsmedia_key_configured: false,
+  five_sim_rate_to_ngn: 0,
+  five_sim_markup_percentage: 50,
+  fivesim_key_configured: false,
   sync_interval_minutes: 10,
   low_balance_threshold_usd: 25.0
 };
 
-// Simple secure hash helper (for password storage)
+// --- Credential encryption (AES-256-GCM) for secrets stored in the JSON DB ---
+// Supports key fallbacks and rotation so changing ENCRYPTION_KEY or running
+// in environments with different configs does not crash or corrupt state.
+function getCandidateRawKeys(): string[] {
+  const keys: string[] = [];
+  if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length >= 32) {
+    keys.push(process.env.ENCRYPTION_KEY);
+  }
+  try {
+    const envPath = path.resolve(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8');
+      const match = content.match(/^ENCRYPTION_KEY=["']?([^"'\r\n]+)["']?/m);
+      if (match && match[1] && match[1].length >= 32 && !keys.includes(match[1])) {
+        keys.push(match[1]);
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  const fallback = '760275949215ac45d73777ef37fdec5805aa5981312db284ea88fae6828b350b';
+  if (!keys.includes(fallback)) {
+    keys.push(fallback);
+  }
+  return keys;
+}
+
+function getEncryptionKey(): Buffer {
+  const candidates = getCandidateRawKeys();
+  if (candidates.length === 0) {
+    throw new Error('ENCRYPTION_KEY is missing or too short in .env (need at least 32 characters).');
+  }
+  return crypto.createHash('sha256').update(candidates[0]).digest();
+}
+
+export function encryptSecret(plainText: string): string {
+  const key = getEncryptionKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  // Store iv + authTag + ciphertext together, base64, so it's one string in the JSON file.
+  return Buffer.concat([iv, authTag, encrypted]).toString('base64');
+}
+
+export function decryptSecret(stored: string, onFallbackKeyUsed?: () => void): string {
+  const rawKeys = getCandidateRawKeys();
+  if (rawKeys.length === 0) {
+    throw new Error('ENCRYPTION_KEY is missing or too short in .env (need at least 32 characters).');
+  }
+
+  const raw = Buffer.from(stored, 'base64');
+  if (raw.length < 28) {
+    throw new Error('Stored encrypted secret payload is malformed.');
+  }
+
+  const iv = raw.subarray(0, 12);
+  const authTag = raw.subarray(12, 28);
+  const encrypted = raw.subarray(28);
+
+  let lastError: any = null;
+  for (let i = 0; i < rawKeys.length; i++) {
+    try {
+      const keyBuf = crypto.createHash('sha256').update(rawKeys[i]).digest();
+      const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuf, iv);
+      decipher.setAuthTag(authTag);
+      const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');
+      if (i > 0 && onFallbackKeyUsed) {
+        onFallbackKeyUsed();
+      }
+      return decrypted;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Decryption failed with all candidate encryption keys.');
+}
+
+// Password hashing (bcrypt, 12 rounds, random per-user salt built in)
 export function hashPassword(plainText: string): string {
+  return bcrypt.hashSync(plainText, 12);
+}
+
+// Legacy hash scheme, kept ONLY so existing accounts created before this
+// patch can still log in once and be transparently migrated. Do not use
+// this for new passwords.
+function legacyHashPassword(plainText: string): string {
   return crypto.createHash('sha256').update(plainText + 'jft_salt_enterprise_2026').digest('hex');
+}
+
+// Verifies a plaintext password against a stored hash. Handles both bcrypt
+// hashes (current) and legacy SHA-256 hashes (pre-migration accounts). When
+// a legacy hash matches, the caller-supplied `onMigrate` callback is invoked
+// with a freshly-generated bcrypt hash so the account can be upgraded in place.
+export function verifyPassword(
+  plainText: string,
+  storedHash: string,
+  onMigrate?: (newHash: string) => void
+): boolean {
+  const isBcryptHash = storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$') || storedHash.startsWith('$2y$');
+
+  if (isBcryptHash) {
+    return bcrypt.compareSync(plainText, storedHash);
+  }
+
+  // Legacy SHA-256 path
+  const matchesLegacy = legacyHashPassword(plainText) === storedHash;
+  if (matchesLegacy && onMigrate) {
+    onMigrate(hashPassword(plainText));
+  }
+  return matchesLegacy;
 }
 
 class Database {
@@ -97,6 +222,31 @@ class Database {
         const raw = fs.readFileSync(DB_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
         if (parsed.users && parsed.orders && parsed.settings) {
+          if (!parsed.number_orders) {
+            parsed.number_orders = [];
+          }
+          if (!parsed.accountCategories) {
+            parsed.accountCategories = [];
+          }
+          if (!parsed.accountListings) {
+            parsed.accountListings = [];
+          }
+          if (!parsed.accountOrders) {
+            parsed.accountOrders = [];
+          }
+          if (!parsed.accountCategories.some((c: any) => c.id === 'uk_tiktok')) {
+            parsed.accountCategories.push({
+              id: 'uk_tiktok',
+              name: 'UK TikTok Account',
+              description: 'Aged UK-region TikTok account, email login. Direct UK algorithm reach & Creator Rewards Program eligibility.',
+              price_ngn: 8000,
+              active: true,
+              created_at: new Date().toISOString()
+            });
+          }
+          if (parsed.settings && parsed.settings.min_deposit_ngn === 1000) {
+            parsed.settings.min_deposit_ngn = 100;
+          }
           return parsed;
         }
       } catch (err) {
@@ -518,6 +668,17 @@ class Database {
       }
     ];
 
+    const accountCategories: AccountCategory[] = [
+      {
+        id: 'uk_tiktok',
+        name: 'UK TikTok Account',
+        description: 'Aged UK-region TikTok account, email login. Direct UK algorithm reach & Creator Rewards Program eligibility.',
+        price_ngn: 8000,
+        active: true,
+        created_at: now
+      }
+    ];
+
     return {
       users: [adminUser, demoUser],
       wallets,
@@ -525,6 +686,10 @@ class Database {
       categories,
       services,
       orders,
+      number_orders: [],
+      accountCategories,
+      accountListings: [],
+      accountOrders: [],
       payments,
       support_tickets,
       support_messages,
@@ -558,6 +723,91 @@ class Database {
     }
 
     return this.data.settings;
+  }
+
+  public saveProviderApiKey(providerId: string, plainKey: string, admin: User, ip: string = '127.0.0.1') {
+    const pId = providerId.toLowerCase();
+    if (!plainKey || plainKey.trim() === '') {
+      if (pId === 'peakerr') {
+        delete this.data.settings.peakerr_api_key_encrypted;
+        this.data.settings.peakerr_key_configured = false;
+      } else if (pId === 'eagainsmedia') {
+        delete this.data.settings.eagainsmedia_api_key_encrypted;
+        this.data.settings.eagainsmedia_key_configured = false;
+      } else if (pId === 'fivesim' || pId === '5sim') {
+        delete this.data.settings.fivesim_api_key_encrypted;
+        this.data.settings.fivesim_key_configured = false;
+      }
+      this.save();
+      return;
+    }
+
+    const encrypted = encryptSecret(plainKey);
+    if (pId === 'peakerr') {
+      this.data.settings.peakerr_api_key_encrypted = encrypted;
+      this.data.settings.peakerr_key_configured = true;
+    } else if (pId === 'eagainsmedia') {
+      this.data.settings.eagainsmedia_api_key_encrypted = encrypted;
+      this.data.settings.eagainsmedia_key_configured = true;
+    } else if (pId === 'fivesim' || pId === '5sim') {
+      this.data.settings.fivesim_api_key_encrypted = encrypted;
+      this.data.settings.fivesim_key_configured = true;
+    }
+    this.save();
+
+    this.addAuditLog({
+      actor_id: admin.id,
+      actor_name: admin.name,
+      actor_role: admin.role,
+      action: `UPDATE_${providerId.toUpperCase()}_API_KEY`,
+      entity_type: 'settings',
+      entity_id: 'global',
+      details: `${providerId} API key was updated and encrypted at rest.`,
+      ip
+    });
+  }
+
+  public getProviderApiKey(providerId: string): string | null {
+    const pId = providerId.toLowerCase();
+    let encrypted: string | undefined;
+    if (pId === 'peakerr') {
+      encrypted = this.data.settings.peakerr_api_key_encrypted;
+    } else if (pId === 'eagainsmedia') {
+      encrypted = this.data.settings.eagainsmedia_api_key_encrypted;
+    } else if (pId === 'fivesim' || pId === '5sim') {
+      encrypted = this.data.settings.fivesim_api_key_encrypted;
+    }
+    if (!encrypted) return null;
+
+    try {
+      return decryptSecret(encrypted, () => {
+        try {
+          const plain = decryptSecret(encrypted!);
+          const reEncrypted = encryptSecret(plain);
+          if (pId === 'peakerr') {
+            this.data.settings.peakerr_api_key_encrypted = reEncrypted;
+          } else if (pId === 'eagainsmedia') {
+            this.data.settings.eagainsmedia_api_key_encrypted = reEncrypted;
+          } else if (pId === 'fivesim' || pId === '5sim') {
+            this.data.settings.fivesim_api_key_encrypted = reEncrypted;
+          }
+          this.save();
+        } catch {
+          // ignore
+        }
+      });
+    } catch (err) {
+      console.warn(`[Database] Failed to decrypt stored ${providerId} API key:`, err);
+      return null;
+    }
+  }
+
+  public savePeakerrApiKey(plainKey: string, admin: User, ip: string = '127.0.0.1') {
+    this.saveProviderApiKey('peakerr', plainKey, admin, ip);
+  }
+
+  public getPeakerrApiKey(): string | null {
+    return this.getProviderApiKey('peakerr');
   }
 
   // --- USERS ---
@@ -774,6 +1024,49 @@ class Database {
     return this.data.orders[idx];
   }
 
+  // --- NUMBER ORDERS (5sim) ---
+
+  public getNumberOrders(userId?: string): NumberOrder[] {
+    if (!this.data.number_orders) this.data.number_orders = [];
+    if (userId) {
+      return this.data.number_orders
+        .filter(o => o.user_id === userId)
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+    return this.data.number_orders
+      .slice()
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }
+
+  public getNumberOrdersByUser(userId: string): NumberOrder[] {
+    return this.getNumberOrders(userId);
+  }
+
+  public findNumberOrderById(id: string): NumberOrder | undefined {
+    if (!this.data.number_orders) this.data.number_orders = [];
+    return this.data.number_orders.find(o => o.id === id);
+  }
+
+  public createNumberOrder(order: NumberOrder): NumberOrder {
+    if (!this.data.number_orders) this.data.number_orders = [];
+    this.data.number_orders.unshift(order);
+    this.save();
+    return order;
+  }
+
+  public updateNumberOrder(id: string, updates: Partial<NumberOrder>): NumberOrder | null {
+    if (!this.data.number_orders) this.data.number_orders = [];
+    const idx = this.data.number_orders.findIndex(o => o.id === id);
+    if (idx === -1) return null;
+    this.data.number_orders[idx] = {
+      ...this.data.number_orders[idx],
+      ...updates,
+      updated_at: new Date().toISOString()
+    };
+    this.save();
+    return this.data.number_orders[idx];
+  }
+
   /**
    * Strictly Enforced Admin Refund Protocol:
    * 1. Customer contacts support/WhatsApp.
@@ -841,6 +1134,61 @@ class Database {
       entity_id: order.id,
       details: `Refunded ${order.currency} ${refundAmount} to user ${order.user_id}. Reason: ${reason}`,
       ip
+    });
+
+    return { success: true, order, refundedAmount: refundAmount };
+  }
+
+  public processSystemRefund(
+    orderId: string,
+    reason: string
+  ): { success: boolean; order: Order; refundedAmount: number } {
+    const order = this.findOrderById(orderId);
+    if (!order) {
+      throw new Error(`Order ${orderId} not found.`);
+    }
+
+    if (order.status === 'refunded' || order.refunded_at) {
+      throw new Error(`Order ${orderId} has already been refunded. Duplicate refund prevented.`);
+    }
+
+    const refundAmount = order.customer_charge;
+
+    this.creditWallet(
+      order.user_id,
+      order.currency,
+      refundAmount,
+      'refund',
+      order.id,
+      `Auto-refund for Order ${order.id}: ${reason}`
+    );
+
+    const now = new Date().toISOString();
+    order.status = 'failed';
+    order.refunded_at = now;
+    order.refund_reason = reason;
+    order.refund_admin_id = 'system';
+    order.updated_at = now;
+    this.save();
+
+    this.createNotification({
+      user_id: order.user_id,
+      type: 'refund',
+      title: 'Order Failed — Automatically Refunded',
+      message: `We couldn't complete your order ${order.id}, so it's been cancelled and ${order.currency} ${refundAmount.toLocaleString()} has been refunded to your wallet. Reason: ${reason}`,
+      read: false,
+      link: '/orders'
+    });
+
+    this.addAuditLog({
+      actor_id: 'system',
+      actor_name: 'Automation Engine',
+      actor_role: 'system',
+      action: 'AUTO_REFUND_FAILED_DISPATCH',
+      entity_type: 'order',
+      entity_id: order.id,
+      details: `Auto-refunded ${order.currency} ${refundAmount} to user ${order.user_id} after repeated provider dispatch failure. Reason: ${reason}`,
+      ip: 'system'
     });
 
     return { success: true, order, refundedAmount: refundAmount };
@@ -1049,6 +1397,113 @@ class Database {
     }
     this.save();
     return log;
+  }
+
+  // --- ACCOUNT STORE (PRE-MADE ACCOUNTS) ---
+
+  public getAccountCategories(onlyActive: boolean = true): AccountCategory[] {
+    const cats = this.data.accountCategories || [];
+    return onlyActive ? cats.filter(c => c.active) : cats;
+  }
+
+  public getAvailableStockCount(categoryId: string): number {
+    return (this.data.accountListings || []).filter(
+      l => l.category_id === categoryId && l.status === 'available'
+    ).length;
+  }
+
+  public getSoldCountByCategory(categoryId: string): number {
+    return (this.data.accountOrders || []).filter(
+      o => o.category_id === categoryId
+    ).length;
+  }
+
+  public upsertAccountCategory(data: { id: string; name: string; description?: string; price_ngn: number; active?: boolean }): AccountCategory {
+    if (!this.data.accountCategories) {
+      this.data.accountCategories = [];
+    }
+    const idx = this.data.accountCategories.findIndex(c => c.id === data.id);
+    const now = new Date().toISOString();
+    if (idx >= 0) {
+      this.data.accountCategories[idx] = {
+        ...this.data.accountCategories[idx],
+        name: data.name,
+        description: data.description !== undefined ? data.description : this.data.accountCategories[idx].description,
+        price_ngn: data.price_ngn,
+        active: data.active !== undefined ? data.active : this.data.accountCategories[idx].active
+      };
+      this.save();
+      return this.data.accountCategories[idx];
+    } else {
+      const newCat: AccountCategory = {
+        id: data.id,
+        name: data.name,
+        description: data.description || '',
+        price_ngn: data.price_ngn,
+        active: data.active ?? true,
+        created_at: now
+      };
+      this.data.accountCategories.push(newCat);
+      this.save();
+      return newCat;
+    }
+  }
+
+  public addAccountStock(categoryId: string, credentials: Array<{ email: string; password: string }>): number {
+    const now = new Date().toISOString();
+    const newListings: AccountListing[] = credentials.map(c => ({
+      id: `acct_${crypto.randomBytes(8).toString('hex')}`,
+      category_id: categoryId,
+      status: 'available',
+      email_encrypted: encryptSecret(c.email),
+      password_encrypted: encryptSecret(c.password),
+      added_at: now
+    }));
+    this.data.accountListings = [...(this.data.accountListings || []), ...newListings];
+    this.save();
+    return newListings.length;
+  }
+
+  // Claims one available listing for a category and marks it sold, atomically —
+  // no `await` happens between reading availability and writing the sold state,
+  // so two simultaneous purchase requests can never claim the same listing
+  // (Node's event loop can't interleave synchronous code).
+  public claimAccountListing(categoryId: string, userId: string, orderId: string): AccountListing {
+    const listing = (this.data.accountListings || []).find(
+      l => l.category_id === categoryId && l.status === 'available'
+    );
+    if (!listing) {
+      throw new Error('This account type is currently out of stock.');
+    }
+    listing.status = 'sold';
+    listing.sold_to_user_id = userId;
+    listing.sold_order_id = orderId;
+    listing.sold_at = new Date().toISOString();
+    this.save();
+    return listing;
+  }
+
+  public createAccountOrder(data: Omit<AccountOrder, 'created_at'> & { id?: string; created_at?: string }): AccountOrder {
+    const order: AccountOrder = {
+      ...data,
+      id: data.id || `acctord_${crypto.randomBytes(8).toString('hex')}`,
+      created_at: data.created_at || new Date().toISOString()
+    };
+    this.data.accountOrders = [...(this.data.accountOrders || []), order];
+    this.save();
+    return order;
+  }
+
+  public getAccountOrdersByUser(userId: string): AccountOrder[] {
+    return (this.data.accountOrders || []).filter(o => o.user_id === userId);
+  }
+
+  public getAllAccountOrders(): AccountOrder[] {
+    return (this.data.accountOrders || []).slice();
+  }
+
+  public getAccountListingById(id: string): AccountListing | undefined {
+    return (this.data.accountListings || []).find(l => l.id === id);
   }
 }
 

@@ -2,11 +2,13 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
-import { db, hashPassword } from './server/db.js';
-import { PeakerrClient } from './server/peakerrClient.js';
-import { calculateOrderPrice, roundMoney } from './server/pricingEngine.js';
+import { db, hashPassword, verifyPassword, encryptSecret, decryptSecret } from './server/db.js';
+import { PeakerrClient, ServiceProvider } from './server/peakerrClient.js';
+import { EagainsmediaClient } from './server/eagainsmediaClient.js';
+import { FiveSimClient } from './server/fiveSimClient.js';
+import { calculateOrderPrice, calculateNumberPrice, roundMoney } from './server/pricingEngine.js';
 import { AutomationEngine } from './server/automation.js';
-import { User, Currency } from './src/types/index.js';
+import { User, Currency, NumberOrder, AccountCategory, AccountListing, AccountOrder } from './src/types/index.js';
 
 dotenv.config();
 
@@ -16,22 +18,63 @@ const PORT = 3000;
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Initialize Provider Client & Automation Engine
-const peakerr = new PeakerrClient(process.env.PEAKERR_API_KEY || '');
-const automation = new AutomationEngine(peakerr);
+// Initialize Provider Clients & Automation Engine
+// Prefer keys saved through the admin panel (encrypted in DB) over .env values
+const persistedPeakerrKey = db.getProviderApiKey('peakerr');
+const peakerr = new PeakerrClient(persistedPeakerrKey || process.env.PEAKERR_API_KEY || '');
+if (persistedPeakerrKey && peakerr.isLive()) {
+  console.log('[Startup] Loaded Peakerr API key from persisted settings.');
+} else if (process.env.PEAKERR_API_KEY && peakerr.isLive()) {
+  console.log('[Startup] Loaded Peakerr API key from environment variable.');
+} else {
+  console.info('[Startup] No live Peakerr API key configured — running in demo/mock mode.');
+}
+
+const persistedEagainsmediaKey = db.getProviderApiKey('eagainsmedia');
+const eagainsmedia = new EagainsmediaClient(persistedEagainsmediaKey || process.env.EAGAINSMEDIA_API_KEY || '');
+if (persistedEagainsmediaKey) {
+  console.log('[Startup] Loaded Eagainsmedia API key from persisted settings.');
+} else if (process.env.EAGAINSMEDIA_API_KEY) {
+  console.log('[Startup] Loaded Eagainsmedia API key from environment variable.');
+}
+
+const persistedFiveSimKey = db.getProviderApiKey('fivesim');
+const fiveSim = new FiveSimClient(persistedFiveSimKey || process.env.FIVESIM_API_KEY || '');
+if (persistedFiveSimKey) {
+  console.log('[Startup] Loaded 5sim API key from persisted settings.');
+} else if (process.env.FIVESIM_API_KEY) {
+  console.log('[Startup] Loaded 5sim API key from environment variable.');
+}
+
+function getProviderClient(providerId?: string): ServiceProvider {
+  if (providerId && providerId.toLowerCase() === 'eagainsmedia') {
+    return eagainsmedia;
+  }
+  return peakerr;
+}
+
+const automation = new AutomationEngine(getProviderClient);
 automation.start();
 
 // Simple in-memory session token store (token -> userId)
 const activeSessions = new Map<string, string>();
 
-// Seed default sessions for quick access
-const adminUser = db.findUserByEmail('admin@jftsocials.online');
-if (adminUser) {
-  activeSessions.set('sess_admin_master_token', adminUser.id);
-}
-const demoUser = db.findUserByEmail('customer@jftsocials.online');
-if (demoUser) {
-  activeSessions.set('sess_demo_customer_token', demoUser.id);
+// Dev-only convenience sessions. These are NEVER seeded in production, and
+// even in development they're random per-boot tokens (not fixed strings),
+// logged once to the console so a developer can copy them if needed.
+if (process.env.NODE_ENV !== 'production') {
+  const adminUser = db.findUserByEmail('admin@jftsocials.online');
+  if (adminUser) {
+    const devAdminToken = `dev_admin_${crypto.randomBytes(24).toString('hex')}`;
+    activeSessions.set(devAdminToken, adminUser.id);
+    console.log(`[dev] Admin session token: ${devAdminToken}`);
+  }
+  const demoUser = db.findUserByEmail('customer@jftsocials.online');
+  if (demoUser) {
+    const devDemoToken = `dev_demo_${crypto.randomBytes(24).toString('hex')}`;
+    activeSessions.set(devDemoToken, demoUser.id);
+    console.log(`[dev] Demo customer session token: ${devDemoToken}`);
+  }
 }
 
 // --- AUTH MIDDLEWARE ---
@@ -98,6 +141,7 @@ app.get('/api/public/config', (req, res) => {
     payment_fee_percentage: settings.payment_fee_percentage,
     payment_fee_enabled: settings.payment_fee_enabled,
     usdt_trc20_address: settings.usdt_trc20_address,
+    paystack_public_key: process.env.PAYSTACK_PUBLIC_KEY || '',
     usdt_network: settings.usdt_network,
     min_deposit_ngn: settings.min_deposit_ngn,
     min_deposit_usdt: settings.min_deposit_usdt
@@ -180,8 +224,15 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(401).json({ success: false, error: 'Invalid credentials. Please verify your login details.' });
     }
 
-    if (user.password_hash !== hashPassword(password)) {
-      return res.status(401).json({ success: false, error: 'Invalid credentials. Please check your password.' });
+    const passwordOk = verifyPassword(password, user.password_hash, (newHash) => {
+      // Transparent migration: this account was still on the old SHA-256
+      // scheme, and the password just checked out — upgrade it to bcrypt now.
+      user.password_hash = newHash;
+      db.updateUser(user.id, { password_hash: newHash });
+    });
+
+    if (!passwordOk) {
+      return res.status(401).json({ success: false, error: 'Invalid credentials. Please verify your login details.' });
     }
 
     if (user.status === 'suspended') {
@@ -231,6 +282,34 @@ app.post('/api/auth/logout', (req, res) => {
     activeSessions.delete(token);
   }
   res.json({ success: true, message: 'Logged out successfully.' });
+});
+
+app.post('/api/auth/change-password', authenticate, (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.user!;
+    const { current_password, new_password } = req.body;
+
+    if (!current_password || !new_password) {
+      return res.status(400).json({ success: false, error: 'Current password and new password are required.' });
+    }
+
+    if (new_password.length < 6) {
+      return res.status(400).json({ success: false, error: 'New password must be at least 6 characters.' });
+    }
+
+    const passwordOk = verifyPassword(current_password, user.password_hash);
+    if (!passwordOk) {
+      return res.status(400).json({ success: false, error: 'Current password is incorrect.' });
+    }
+
+    const newHash = hashPassword(new_password);
+    user.password_hash = newHash;
+    db.updateUser(user.id, { password_hash: newHash });
+
+    res.json({ success: true, message: 'Password updated successfully.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // -----------------------------
@@ -395,10 +474,13 @@ app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => 
       `Order ${orderId}: ${service.name} (${numQuantity.toLocaleString()} units)`
     );
 
-    // 3. Dispatch to Peakerr API v2
+    // 3. Dispatch to Provider API v2
+    const targetProviderId = service.provider_id || 'peakerr';
+    const providerClient = getProviderClient(targetProviderId);
     let providerOrderId: number | string = 0;
+    let dispatchFailed = false;
     try {
-      const providerRes = await peakerr.addOrder(
+      const providerRes = await providerClient.addOrder(
         service.provider_service_id,
         target_link,
         numQuantity
@@ -406,11 +488,15 @@ app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => 
       if (providerRes.orderId) {
         providerOrderId = providerRes.orderId;
       } else {
+        dispatchFailed = true;
         console.warn(`[OrderCreation] Provider warning for ${orderId}: ${providerRes.error}`);
       }
     } catch (e: any) {
+      dispatchFailed = true;
       console.error(`[OrderCreation] Provider call failed for ${orderId}:`, e);
-      // Even if provider times out, we have the order record queued with 'pending' status for background auto-reconciliation
+      // The order is still recorded below with 'processing' status. The
+      // AutomationEngine's retryFailedDispatches loop will retry it on a
+      // schedule, and auto-refund the customer if it keeps failing.
     }
 
     // 4. Record order with historical pricing snapshot
@@ -422,7 +508,8 @@ app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => 
       user_email: user.email,
       service_id: service.id,
       service_name: service.name,
-      provider_id: 'peakerr',
+      provider_id: targetProviderId,
+      provider_service_id: service.provider_service_id,
       provider_order_id: providerOrderId || undefined,
       target_link,
       quantity: numQuantity,
@@ -443,6 +530,8 @@ app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => 
       provider_status: providerOrderId ? 'In progress' : 'Awaiting Provider',
       refill_eligible: service.refill_supported,
       cancel_eligible: service.cancel_supported,
+      dispatch_attempts: dispatchFailed ? 1 : 0,
+      last_dispatch_attempt_at: dispatchFailed ? now : undefined,
       created_at: now,
       updated_at: now
     });
@@ -451,8 +540,10 @@ app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => 
     db.createNotification({
       user_id: user.id,
       type: 'order',
-      title: 'Order Placed Successfully',
-      message: `Your order ${newOrder.id} for ${service.name} (${numQuantity.toLocaleString()} units) is now in progress.`,
+      title: dispatchFailed ? 'Order Received — Processing' : 'Order Placed Successfully',
+      message: dispatchFailed
+        ? `Your order ${newOrder.id} for ${service.name} (${numQuantity.toLocaleString()} units) has been received and is being processed. We'll notify you once it's confirmed.`
+        : `Your order ${newOrder.id} for ${service.name} (${numQuantity.toLocaleString()} units) is now in progress.`,
       read: false,
       link: '/orders'
     });
@@ -552,7 +643,7 @@ app.post('/api/orders/:id/refill', authenticate, async (req: AuthenticatedReques
     }
 
     if (order.provider_order_id) {
-      await peakerr.createRefill(order.provider_order_id);
+      await getProviderClient(order.provider_id).createRefill(order.provider_order_id);
     }
 
     db.updateOrder(order.id, {
@@ -588,7 +679,7 @@ app.post('/api/orders/:id/cancel', authenticate, async (req: AuthenticatedReques
     }
 
     if (order.provider_order_id) {
-      await peakerr.cancelOrders([order.provider_order_id]);
+      await getProviderClient(order.provider_id).cancelOrders([order.provider_order_id]);
     }
 
     db.updateOrder(order.id, {
@@ -600,6 +691,340 @@ app.post('/api/orders/:id/cancel', authenticate, async (req: AuthenticatedReques
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// -----------------------------
+// VIRTUAL NUMBERS (5SIM) API
+// -----------------------------
+
+app.get('/api/numbers/countries', async (req, res) => {
+  try {
+    const countries = await fiveSim.getCountries();
+    res.json({ success: true, countries });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/numbers/products', async (req, res) => {
+  try {
+    const country = (req.query.country as string) || 'any';
+    const operator = (req.query.operator as string) || 'any';
+    const rawProducts = await fiveSim.getProducts(country, operator);
+    const settings = db.getSettings();
+
+    const products = Object.entries(rawProducts).map(([name, details]) => {
+      let priceNgn = 0;
+      let priceUsdt = 0;
+      try {
+        const pricingNgn = calculateNumberPrice(details.Price, 'NGN', settings);
+        priceNgn = pricingNgn.customerPrice;
+      } catch {
+        priceNgn = details.Price * 25 * 1.5;
+      }
+
+      try {
+        const pricingUsdt = calculateNumberPrice(details.Price, 'USDT', settings);
+        priceUsdt = pricingUsdt.customerPrice;
+      } catch {
+        priceUsdt = Number(((details.Price * 25 * 1.5) / 1500).toFixed(2));
+      }
+
+      return {
+        name,
+        category: details.Category || 'Other',
+        count: details.Qty || 0,
+        price_native: details.Price,
+        price_ngn: priceNgn,
+        price_usdt: priceUsdt
+      };
+    });
+
+    res.json({ success: true, products });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/numbers/order', authenticate, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.user!;
+    const { country = 'any', operator = 'any', product, currency = 'NGN' } = req.body;
+
+    if (!product) {
+      return res.status(400).json({ success: false, error: 'Product name is required.' });
+    }
+
+    const orderCurrency: Currency = (currency as Currency) === 'USDT' ? 'USDT' : 'NGN';
+    const settings = db.getSettings();
+
+    // 1. Fetch live product price from 5sim
+    const rawProducts = await fiveSim.getProducts(country, operator);
+    const productInfo = rawProducts[product];
+
+    if (!productInfo || productInfo.Qty === 0) {
+      return res.status(400).json({ success: false, error: `No virtual numbers currently available for ${product} in ${country}.` });
+    }
+
+    // 2. Calculate customer price with markup
+    const pricing = calculateNumberPrice(productInfo.Price, orderCurrency, settings);
+
+    // 3. Atomically check & debit user wallet
+    const orderId = `JFT-NUM-${Math.floor(10000 + Math.random() * 90000)}`;
+    try {
+      db.debitWallet(
+        user.id,
+        orderCurrency,
+        pricing.customerPrice,
+        'order',
+        orderId,
+        `Virtual Number: ${product} (${country})`
+      );
+    } catch (walletErr: any) {
+      return res.status(400).json({ success: false, error: walletErr.message });
+    }
+
+    // 4. Purchase activation from 5sim
+    let activation;
+    try {
+      activation = await fiveSim.buyActivation(country, operator, product);
+    } catch (providerErr: any) {
+      // Refund wallet immediately if provider purchase failed
+      db.creditWallet(
+        user.id,
+        orderCurrency,
+        pricing.customerPrice,
+        'refund',
+        `REF-${orderId}`,
+        `Refund: Failed order for ${product} (${providerErr.message || 'Provider error'})`
+      );
+      return res.status(500).json({ success: false, error: `Failed to acquire number: ${providerErr.message || 'Provider error'}` });
+    }
+
+    // 5. Store NumberOrder in database
+    const now = new Date().toISOString();
+    const smsCode = activation.sms && activation.sms.length > 0 ? activation.sms[0].code : null;
+    const smsText = activation.sms && activation.sms.length > 0 ? activation.sms[0].text : null;
+
+    const newOrder: NumberOrder = {
+      id: orderId,
+      user_id: user.id,
+      provider_order_id: activation.id,
+      product: activation.product || product,
+      country: activation.country || country,
+      operator: activation.operator || operator,
+      phone: activation.phone,
+      sms_code: smsCode,
+      sms_text: smsText,
+      customer_charge: pricing.customerPrice,
+      provider_cost: productInfo.Price,
+      currency: orderCurrency,
+      status: activation.status || 'PENDING',
+      expires_at: activation.expires,
+      created_at: now,
+      updated_at: now
+    };
+
+    db.createNumberOrder(newOrder);
+
+    res.json({ success: true, order: newOrder });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/numbers/orders', authenticate, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  const orders = db.getNumberOrders(user.id);
+  res.json({ success: true, orders });
+});
+
+app.get('/api/numbers/orders/:id', authenticate, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  const order = db.findNumberOrderById(req.params.id);
+
+  if (!order || (order.user_id !== user.id && !['admin', 'superadmin'].includes(user.role))) {
+    return res.status(404).json({ success: false, error: 'Order not found' });
+  }
+
+  res.json({ success: true, order });
+});
+
+app.post('/api/numbers/orders/:id/check', authenticate, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.user!;
+    const order = db.findNumberOrderById(req.params.id);
+
+    if (!order || (order.user_id !== user.id && !['admin', 'superadmin'].includes(user.role))) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    const checkRes = await fiveSim.checkOrder(order.provider_order_id);
+    const smsCode = checkRes.sms && checkRes.sms.length > 0 ? checkRes.sms[checkRes.sms.length - 1].code : order.sms_code;
+    const smsText = checkRes.sms && checkRes.sms.length > 0 ? checkRes.sms[checkRes.sms.length - 1].text : order.sms_text;
+
+    const updated = db.updateNumberOrder(order.id, {
+      status: checkRes.status || order.status,
+      sms_code: smsCode,
+      sms_text: smsText,
+      expires_at: checkRes.expires || order.expires_at,
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({ success: true, order: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/numbers/orders/:id/cancel', authenticate, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.user!;
+    const order = db.findNumberOrderById(req.params.id);
+
+    if (!order || (order.user_id !== user.id && !['admin', 'superadmin'].includes(user.role))) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    if (order.status === 'CANCELED' || order.status === 'FINISHED' || order.status === 'TIMEOUT') {
+      return res.status(400).json({ success: false, error: `Order is already ${order.status}` });
+    }
+
+    await fiveSim.cancelOrder(order.provider_order_id);
+
+    // If no SMS code was received, refund the customer
+    if (!order.sms_code) {
+      db.creditWallet(
+        order.user_id,
+        order.currency,
+        order.customer_charge,
+        'refund',
+        `REF-${order.id}`,
+        `Refund: Cancelled virtual number ${order.product}`
+      );
+    }
+
+    const updated = db.updateNumberOrder(order.id, {
+      status: 'CANCELED',
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({ success: true, order: updated, message: 'Order cancelled successfully.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/numbers/orders/:id/finish', authenticate, async (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.user!;
+    const order = db.findNumberOrderById(req.params.id);
+
+    if (!order || (order.user_id !== user.id && !['admin', 'superadmin'].includes(user.role))) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    await fiveSim.finishOrder(order.provider_order_id);
+
+    const updated = db.updateNumberOrder(order.id, {
+      status: 'FINISHED',
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({ success: true, order: updated, message: 'Order completed.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// -----------------------------
+// ACCOUNT STORE (PRE-MADE ACCOUNTS)
+// -----------------------------
+
+// Storefront: categories + live stock counts, no credentials
+app.get('/api/accounts/categories', (req, res) => {
+  const categories = db.getAccountCategories(true).map(c => ({
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    price_ngn: c.price_ngn,
+    in_stock: db.getAvailableStockCount(c.id)
+  }));
+  res.json({ success: true, categories });
+});
+
+// Purchase — the critical ordering: debit the wallet FIRST, and only reveal
+// credentials if that succeeds. If the wallet debit throws (insufficient
+// balance), execution never reaches claimAccountListing, so nothing is
+// ever handed out unpaid.
+app.post('/api/accounts/buy', authenticate, (req: AuthenticatedRequest, res) => {
+  try {
+    const user = req.user!;
+    const { category_id } = req.body;
+
+    const category = db.getAccountCategories(true).find(c => c.id === category_id);
+    if (!category) {
+      return res.status(404).json({ success: false, error: 'Account category not found or unavailable.' });
+    }
+
+    if (db.getAvailableStockCount(category_id) === 0) {
+      return res.status(400).json({ success: false, error: 'This account type is currently out of stock.' });
+    }
+
+    const orderId = `acctord_${crypto.randomBytes(8).toString('hex')}`;
+
+    // 1. Payment first — throws on insufficient balance, aborting the whole request.
+    db.debitWallet(user.id, 'NGN', category.price_ngn, 'order', orderId, `Account purchase: ${category.name}`);
+
+    // 2. Only now, with payment confirmed, claim a unit and hand over credentials.
+    const listing = db.claimAccountListing(category_id, user.id, orderId);
+
+    const order = db.createAccountOrder({
+      id: orderId,
+      user_id: user.id,
+      category_id: category.id,
+      category_name: category.name,
+      listing_id: listing.id,
+      price_charged: category.price_ngn,
+      currency: 'NGN'
+    });
+
+    db.createNotification({
+      user_id: user.id,
+      type: 'order',
+      title: 'Account Purchased',
+      message: `Your ${category.name} is ready — view it under "My Accounts".`,
+      read: false,
+      link: '/accounts'
+    });
+
+    res.json({
+      success: true,
+      order_id: order.id,
+      account: {
+        category_name: category.name,
+        email: decryptSecret(listing.email_encrypted),
+        password: decryptSecret(listing.password_encrypted)
+      }
+    });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// My Accounts — customers can come back and view what they've bought at any time
+app.get('/api/accounts/my-purchases', authenticate, (req: AuthenticatedRequest, res) => {
+  const user = req.user!;
+  const orders = db.getAccountOrdersByUser(user.id);
+  const withCredentials = orders.map(o => {
+    const listing = db.getAccountListingById(o.listing_id);
+    return {
+      ...o,
+      email: listing ? decryptSecret(listing.email_encrypted) : null,
+      password: listing ? decryptSecret(listing.password_encrypted) : null
+    };
+  });
+  res.json({ success: true, orders: withCredentials.reverse() });
 });
 
 // -----------------------------
@@ -686,7 +1111,7 @@ app.post('/api/payments/paystack/initialize', authenticate, (req: AuthenticatedR
 });
 
 // Paystack Server-side Verification & Instant Wallet Credit (supports GET & POST)
-const handlePaystackVerify = (req: AuthenticatedRequest, res: any) => {
+const handlePaystackVerify = async (req: AuthenticatedRequest, res: any) => {
   try {
     const user = req.user!;
     const reference = req.params?.reference || req.body?.reference || (req.query?.reference as string);
@@ -715,7 +1140,56 @@ const handlePaystackVerify = (req: AuthenticatedRequest, res: any) => {
       });
     }
 
-    // Mark confirmed
+    const secretKey = process.env.PAYSTACK_SECRET_KEY;
+    if (!secretKey) {
+      console.error('[Paystack] PAYSTACK_SECRET_KEY is not configured on the server.');
+      return res.status(500).json({ success: false, error: 'Payment provider is not configured. Please contact support.' });
+    }
+
+    // Call Paystack's real verification endpoint — never trust the client's word on payment status.
+    let paystackData: any;
+    try {
+      const verifyResponse = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${secretKey}` }
+      });
+      const verifyJson = await verifyResponse.json();
+      if (!verifyResponse.ok || !verifyJson.status) {
+        return res.status(402).json({
+          success: false,
+          error: verifyJson?.message || 'Paystack could not verify this transaction.'
+        });
+      }
+      paystackData = verifyJson.data;
+    } catch (fetchErr: any) {
+      console.error('[Paystack] Verification request failed:', fetchErr);
+      return res.status(502).json({ success: false, error: 'Could not reach Paystack to verify this payment. Please try again.' });
+    }
+
+    if (!paystackData || paystackData.status !== 'success') {
+      payment.status = 'failed';
+      payment.updated_at = new Date().toISOString();
+      db.updatePayment(payment.id, payment);
+      return res.status(402).json({
+        success: false,
+        error: `Payment was not successful (Paystack status: ${paystackData?.status || 'unknown'}).`
+      });
+    }
+
+    // Cross-check the amount actually paid (Paystack returns kobo) against what we expect.
+    const expectedKobo = Math.round(payment.amount * 100);
+    const paidKobo = paystackData.amount;
+    if (paidKobo < expectedKobo) {
+      payment.status = 'failed';
+      payment.updated_at = new Date().toISOString();
+      db.updatePayment(payment.id, payment);
+      return res.status(402).json({
+        success: false,
+        error: `Amount mismatch: expected ₦${payment.amount.toLocaleString()}, Paystack confirmed ₦${(paidKobo / 100).toLocaleString()}.`
+      });
+    }
+
+    // Mark confirmed only after real verification has passed
     payment.status = 'confirmed';
     payment.updated_at = new Date().toISOString();
     db.updatePayment(payment.id, payment);
@@ -1192,7 +1666,15 @@ app.patch('/api/admin/services/:id', verifyAdmin, (req: AuthenticatedRequest, re
 app.post('/api/admin/services/sync', verifyAdmin, async (req: AuthenticatedRequest, res) => {
   try {
     const admin = req.user!;
-    const syncResult = await automation.syncServicesFromProvider();
+    const providerToSync = req.body?.provider;
+    let syncResult;
+
+    if (providerToSync === 'all') {
+      await automation.syncAllProviderCatalogs();
+      syncResult = { message: 'All provider catalogs synced successfully' };
+    } else {
+      syncResult = await automation.syncServicesFromProvider(providerToSync || 'peakerr');
+    }
 
     db.addAuditLog({
       actor_id: admin.id,
@@ -1201,7 +1683,7 @@ app.post('/api/admin/services/sync', verifyAdmin, async (req: AuthenticatedReque
       action: 'SYNC_SERVICES_PROVIDER',
       entity_type: 'service',
       entity_id: 'provider_sync',
-      details: `Provider sync: ${syncResult.added} added, ${syncResult.updated} updated, ${syncResult.total} retrieved.`,
+      details: `Provider sync (${providerToSync || 'peakerr'}): ${JSON.stringify(syncResult)}`,
       ip: req.ip || '127.0.0.1'
     });
 
@@ -1209,6 +1691,78 @@ app.post('/api/admin/services/sync', verifyAdmin, async (req: AuthenticatedReque
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// -----------------------------
+// ADMIN ACCOUNT STORE & INVENTORY
+// -----------------------------
+
+// Create/update a category (e.g. set up "uk_tiktok" at ₦8,000)
+app.post('/api/admin/accounts/categories', verifyAdmin, (req: AuthenticatedRequest, res) => {
+  const { id, name, description, price_ngn, active } = req.body;
+  if (!id || !name || price_ngn === undefined || price_ngn === null) {
+    return res.status(400).json({ success: false, error: 'id, name, and price_ngn are required.' });
+  }
+  const category = db.upsertAccountCategory({
+    id: String(id).trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+    name: String(name).trim(),
+    description: description ? String(description).trim() : '',
+    price_ngn: Number(price_ngn),
+    active: active !== undefined ? Boolean(active) : true
+  });
+  res.json({ success: true, category });
+});
+
+// Bulk stock upload — paste lines like "email:password", one per line
+app.post('/api/admin/accounts/stock', verifyAdmin, (req: AuthenticatedRequest, res) => {
+  const { category_id, raw_credentials } = req.body;
+  if (!category_id || !raw_credentials) {
+    return res.status(400).json({ success: false, error: 'category_id and raw_credentials are required.' });
+  }
+
+  const lines: string[] = String(raw_credentials).split('\n').map((l: string) => l.trim()).filter(Boolean);
+  const parsed: Array<{ email: string; password: string }> = [];
+  const rejected: string[] = [];
+
+  for (const line of lines) {
+    const idx = line.indexOf(':');
+    if (idx === -1) {
+      rejected.push(line);
+      continue;
+    }
+    const email = line.slice(0, idx).trim();
+    const password = line.slice(idx + 1).trim();
+    if (!email || !password) {
+      rejected.push(line);
+      continue;
+    }
+    parsed.push({ email, password });
+  }
+
+  const added = db.addAccountStock(category_id, parsed);
+
+  res.json({
+    success: true,
+    added,
+    rejected_count: rejected.length,
+    rejected_lines: rejected // so the admin can see and fix any malformed lines
+  });
+});
+
+// Stock overview
+app.get('/api/admin/accounts/stock', verifyAdmin, (req: AuthenticatedRequest, res) => {
+  const categories = db.getAccountCategories(false).map(c => ({
+    ...c,
+    in_stock: db.getAvailableStockCount(c.id),
+    sold_count: db.getSoldCountByCategory(c.id)
+  }));
+  res.json({ success: true, categories });
+});
+
+// Admin view all account orders
+app.get('/api/admin/accounts/orders', verifyAdmin, (req: AuthenticatedRequest, res) => {
+  const orders = db.getAllAccountOrders();
+  res.json({ success: true, orders: orders.reverse() });
 });
 
 // Admin Pricing Engine & Live Calculator
@@ -1458,35 +2012,79 @@ app.patch('/api/admin/support/tickets/:id/status', verifyAdmin, (req, res) => {
 // Admin System Settings
 app.get('/api/admin/settings', verifyAdmin, (req, res) => {
   const settings = db.getSettings();
-  res.json({ success: true, settings });
+  const {
+    peakerr_api_key_encrypted,
+    eagainsmedia_api_key_encrypted,
+    fivesim_api_key_encrypted,
+    ...safeSettings
+  } = settings;
+  res.json({ success: true, settings: safeSettings });
 });
 
-app.patch('/api/admin/settings', verifyAdmin, (req: AuthenticatedRequest, res) => {
+const handleUpdateSettings = (req: AuthenticatedRequest, res: any) => {
   const admin = req.user!;
   const updates = req.body;
 
-  // Mask API key if updated
+  // If any API key was submitted, apply it live AND persist it (encrypted)
+  // so it survives a server restart, instead of only living in memory.
   if (updates.peakerr_api_key) {
     peakerr.setApiKey(updates.peakerr_api_key);
-    updates.peakerr_key_configured = true;
-    delete updates.peakerr_api_key;
+    db.saveProviderApiKey('peakerr', updates.peakerr_api_key, admin, req.ip || '127.0.0.1');
+    delete updates.peakerr_api_key; // never echo the raw key back in the settings response
+  }
+
+  if (updates.eagainsmedia_api_key) {
+    eagainsmedia.setApiKey(updates.eagainsmedia_api_key);
+    db.saveProviderApiKey('eagainsmedia', updates.eagainsmedia_api_key, admin, req.ip || '127.0.0.1');
+    delete updates.eagainsmedia_api_key;
+  }
+
+  if (updates.fivesim_api_key) {
+    fiveSim.setApiKey(updates.fivesim_api_key);
+    db.saveProviderApiKey('fivesim', updates.fivesim_api_key, admin, req.ip || '127.0.0.1');
+    delete updates.fivesim_api_key;
   }
 
   const updated = db.updateSettings(updates, admin, req.ip || '127.0.0.1');
-  res.json({ success: true, settings: updated });
-});
+  const {
+    peakerr_api_key_encrypted,
+    eagainsmedia_api_key_encrypted,
+    fivesim_api_key_encrypted,
+    ...safeSettings
+  } = updated;
+  res.json({ success: true, settings: safeSettings });
+};
+
+app.patch('/api/admin/settings', verifyAdmin, handleUpdateSettings);
+app.post('/api/admin/settings', verifyAdmin, handleUpdateSettings);
 
 // Admin Test Provider Connection
 app.post('/api/admin/provider/test', verifyAdmin, async (req, res) => {
   try {
+    const providerName = (req.body?.provider || 'peakerr').toLowerCase();
     const start = Date.now();
-    const balance = await peakerr.getBalance();
+    let balance: any;
+    let is_live = false;
+    let providerLabel = 'Peakerr API v2';
+
+    if (providerName === 'eagainsmedia') {
+      providerLabel = 'Eagainsmedia SMM API';
+      is_live = eagainsmedia.isLive();
+      balance = await eagainsmedia.getBalance();
+    } else if (providerName === 'fivesim') {
+      providerLabel = '5sim.net API';
+      is_live = fiveSim.isLive();
+      balance = await fiveSim.getBalance();
+    } else {
+      is_live = peakerr.isLive();
+      balance = await peakerr.getBalance();
+    }
     const latency = Date.now() - start;
 
     res.json({
       success: true,
-      provider: 'Peakerr API v2',
-      is_live: peakerr.isLive(),
+      provider: providerLabel,
+      is_live,
       balance: balance.balance,
       currency: balance.currency,
       latency_ms: latency,

@@ -5,36 +5,36 @@
       "name": "JFT Platform Administrator",
       "username": "jftadmin",
       "email": "admin@jftsocials.online",
-      "password_hash": "1df11fda0164a8eed63afc271133970bb11918d6131468746dbba61cea73fe22",
+      "password_hash": "$2b$12$Z.pRd9NV0sUmhYvNVOS5WOJKeWxa98GyhjDyr8fnrVtUyJ4qr/kD2",
       "role": "superadmin",
       "status": "active",
       "email_verified": true,
       "created_at": "2026-09-16T17:29:52.561Z",
-      "updated_at": "2026-09-16T17:29:52.561Z"
+      "updated_at": "2026-09-17T14:11:36.499Z"
     },
     {
       "id": "usr_demo_01",
       "name": "Alex Vance",
       "username": "demouser",
       "email": "customer@jftsocials.online",
-      "password_hash": "cfed2bdcef10901a7d69dac2ffb5ddcf330f1e3b19bddb672340cbda73a1d41f",
+      "password_hash": "$2b$12$hqLMYRrWD6vS0/6GP0ZpUuj3OsfxHiNZhkJevy3fNbAL/YO8qe41q",
       "role": "customer",
       "status": "active",
       "email_verified": true,
       "created_at": "2026-09-16T17:29:52.561Z",
-      "updated_at": "2026-09-16T17:29:52.561Z"
+      "updated_at": "2026-09-17T14:11:49.867Z"
     },
     {
       "name": "Just friends admin",
       "username": "@jftsocials",
       "email": "bhadboiice1@gmail.com",
-      "password_hash": "ea113744bb774f23ff126defd4b4548e6b46f282937c58942893bf56b7e20bb1",
+      "password_hash": "$2b$12$SlpBXrN06oPFoukelK4.P.ZVNCKfHAQuciM6DjXFQb1P.yvrHY1ga",
       "role": "customer",
       "status": "active",
       "email_verified": true,
       "id": "usr_dca803491179",
       "created_at": "2026-09-16T17:51:24.926Z",
-      "updated_at": "2026-09-16T17:51:24.926Z"
+      "updated_at": "2026-09-17T15:34:32.477Z"
     }
   ],
   "wallets": [
@@ -60,7 +60,7 @@
       "currency": "NGN",
       "available_balance": 90000,
       "created_at": "2026-09-16T17:29:52.561Z",
-      "updated_at": "2026-09-16T18:25:30.447Z"
+      "updated_at": "2026-09-17T14:53:10.032Z"
     },
     {
       "id": "wal_demo_usdt",
@@ -88,6 +88,36 @@
     }
   ],
   "wallet_transactions": [
+    {
+      "id": "tx_dabb02fab3f3cff2",
+      "wallet_id": "wal_demo_ngn",
+      "user_id": "usr_demo_01",
+      "type": "admin_debit",
+      "amount": 3000,
+      "balance_before": 93000,
+      "balance_after": 90000,
+      "currency": "NGN",
+      "reference_type": "adjustment",
+      "reference_id": "cleanup",
+      "description": "Test cleanup",
+      "status": "completed",
+      "created_at": "2026-09-17T14:53:10.033Z"
+    },
+    {
+      "id": "tx_9c57dd480daaad10",
+      "wallet_id": "wal_demo_ngn",
+      "user_id": "usr_demo_01",
+      "type": "refund",
+      "amount": 3000,
+      "balance_before": 90000,
+      "balance_after": 93000,
+      "currency": "NGN",
+      "reference_type": "refund",
+      "reference_id": "JFT-TEST-FAIL-1789656784926",
+      "description": "Auto-refund for Order JFT-TEST-FAIL-1789656784926: Provider dispatch failed after 5 attempts.",
+      "status": "completed",
+      "created_at": "2026-09-17T14:53:04.928Z"
+    },
     {
       "id": "tx_f777cefc5d47928f",
       "wallet_id": "wal_demo_ngn",
@@ -245,7 +275,7 @@
       "active": true,
       "ordering_enabled": true,
       "sort_order": 1,
-      "synced_at": "2026-09-16T17:29:52.561Z"
+      "synced_at": "2026-09-18T09:41:17.074Z"
     },
     {
       "id": "srv_102",
@@ -262,7 +292,7 @@
       "active": true,
       "ordering_enabled": true,
       "sort_order": 2,
-      "synced_at": "2026-09-16T17:29:52.561Z"
+      "synced_at": "2026-09-18T09:41:17.074Z"
     },
     {
       "id": "srv_103",
@@ -279,7 +309,7 @@
       "active": true,
       "ordering_enabled": true,
       "sort_order": 3,
-      "synced_at": "2026-09-16T17:29:52.561Z"
+      "synced_at": "2026-09-18T09:41:17.074Z"
     },
     {
       "id": "srv_201",
@@ -296,7 +326,7 @@
       "active": true,
       "ordering_enabled": true,
       "sort_order": 4,
-      "synced_at": "2026-09-16T17:29:52.561Z"
+      "synced_at": "2026-09-18T09:41:17.074Z"
     },
     {
       "id": "srv_202",
@@ -313,7 +343,7 @@
       "active": true,
       "ordering_enabled": true,
       "sort_order": 5,
-      "synced_at": "2026-09-16T17:29:52.561Z"
+      "synced_at": "2026-09-18T09:41:17.074Z"
     },
     {
       "id": "srv_301",
@@ -330,7 +360,7 @@
       "active": true,
       "ordering_enabled": true,
       "sort_order": 6,
-      "synced_at": "2026-09-16T17:29:52.561Z"
+      "synced_at": "2026-09-18T09:41:17.074Z"
     },
     {
       "id": "srv_401",
@@ -347,7 +377,126 @@
       "active": true,
       "ordering_enabled": true,
       "sort_order": 7,
-      "synced_at": "2026-09-16T17:29:52.561Z"
+      "synced_at": "2026-09-18T09:41:17.074Z"
+    },
+    {
+      "id": "srv_peakerr_203",
+      "provider_id": "peakerr",
+      "provider_service_id": 203,
+      "name": "TikTok Viral Post Likes [High Quality + Non-Drop]",
+      "description": "Fast delivery guaranteed. High-quality accounts. Min: 50, Max: 50000.",
+      "category_id": "cat_tk",
+      "provider_rate": 1125,
+      "min_quantity": 50,
+      "max_quantity": 50000,
+      "refill_supported": true,
+      "cancel_supported": true,
+      "active": true,
+      "ordering_enabled": true,
+      "sort_order": 8,
+      "synced_at": "2026-09-18T09:41:17.074Z"
+    },
+    {
+      "id": "srv_peakerr_302",
+      "provider_id": "peakerr",
+      "provider_service_id": 302,
+      "name": "YouTube Real Channel Subscribers [Drop-Proof + 30D Refill]",
+      "description": "Fast delivery guaranteed. High-quality accounts. Min: 50, Max: 5000.",
+      "category_id": "cat_yt",
+      "provider_rate": 9750,
+      "min_quantity": 50,
+      "max_quantity": 5000,
+      "refill_supported": true,
+      "cancel_supported": false,
+      "active": true,
+      "ordering_enabled": true,
+      "sort_order": 10,
+      "synced_at": "2026-09-18T09:41:17.074Z"
+    },
+    {
+      "id": "srv_peakerr_402",
+      "provider_id": "peakerr",
+      "provider_service_id": 402,
+      "name": "Telegram Post Views [10 Recent Posts Auto-View]",
+      "description": "Fast delivery guaranteed. High-quality accounts. Min: 200, Max: 100000.",
+      "category_id": "cat_tg",
+      "provider_rate": 180,
+      "min_quantity": 200,
+      "max_quantity": 100000,
+      "refill_supported": false,
+      "cancel_supported": true,
+      "active": true,
+      "ordering_enabled": true,
+      "sort_order": 12,
+      "synced_at": "2026-09-18T09:41:17.074Z"
+    },
+    {
+      "id": "srv_peakerr_501",
+      "provider_id": "peakerr",
+      "provider_service_id": 501,
+      "name": "Twitter / X High Quality Followers [Organic Style]",
+      "description": "Fast delivery guaranteed. High-quality accounts. Min: 50, Max: 20000.",
+      "category_id": "cat_tw",
+      "provider_rate": 4800,
+      "min_quantity": 50,
+      "max_quantity": 20000,
+      "refill_supported": true,
+      "cancel_supported": false,
+      "active": true,
+      "ordering_enabled": true,
+      "sort_order": 14,
+      "synced_at": "2026-09-18T09:41:17.074Z"
+    },
+    {
+      "id": "srv_peakerr_502",
+      "provider_id": "peakerr",
+      "provider_service_id": 502,
+      "name": "Twitter / X Retweets & Quotes [Viral Reach Boost]",
+      "description": "Fast delivery guaranteed. High-quality accounts. Min: 50, Max: 15000.",
+      "category_id": "cat_tw",
+      "provider_rate": 2400,
+      "min_quantity": 50,
+      "max_quantity": 15000,
+      "refill_supported": true,
+      "cancel_supported": true,
+      "active": true,
+      "ordering_enabled": true,
+      "sort_order": 16,
+      "synced_at": "2026-09-18T09:41:17.074Z"
+    },
+    {
+      "id": "srv_peakerr_601",
+      "provider_id": "peakerr",
+      "provider_service_id": 601,
+      "name": "Facebook Page Likes & Followers [HQ Global Profiles]",
+      "description": "Fast delivery guaranteed. High-quality accounts. Min: 100, Max: 30000.",
+      "category_id": "cat_fb",
+      "provider_rate": 3150,
+      "min_quantity": 100,
+      "max_quantity": 30000,
+      "refill_supported": true,
+      "cancel_supported": true,
+      "active": true,
+      "ordering_enabled": true,
+      "sort_order": 18,
+      "synced_at": "2026-09-18T09:41:17.074Z"
+    },
+    {
+      "id": "srv_peakerr_701",
+      "provider_id": "peakerr",
+      "provider_service_id": 701,
+      "name": "Spotify Premium Track Streams [Royalty Eligible + Global]",
+      "description": "Fast delivery guaranteed. High-quality accounts. Min: 500, Max: 200000.",
+      "category_id": "cat_sp",
+      "provider_rate": 1800,
+      "min_quantity": 500,
+      "max_quantity": 200000,
+      "refill_supported": true,
+      "cancel_supported": true,
+      "active": true,
+      "ordering_enabled": true,
+      "sort_order": 20,
+      "synced_at": "2026-09-18T09:41:17.074Z"
     }
   ],
   "orders": [
@@ -416,6 +565,21 @@
     }
   ],
   "payments": [
+    {
+      "id": "pay_cf015ed7fe85",
+      "user_id": "usr_demo_01",
+      "user_name": "Alex Vance",
+      "user_email": "customer@jftsocials.online",
+      "provider": "paystack",
+      "reference": "pstk_1789624307029_0c546707",
+      "amount": 5000,
+      "fee_amount": 150,
+      "net_amount": 4850,
+      "currency": "NGN",
+      "status": "pending",
+      "created_at": "2026-09-17T05:51:47.029Z",
+      "updated_at": "2026-09-17T05:51:47.029Z"
+    },
     {
       "id": "pay_43e64e90268c",
       "user_id": "usr_demo_01",
@@ -582,6 +746,30 @@
   ],
   "audit_logs": [
     {
+      "actor_id": "usr_admin_01",
+      "actor_name": "JFT Platform Administrator",
+      "actor_role": "superadmin",
+      "action": "UPDATE_SYSTEM_SETTINGS",
+      "entity_type": "settings",
+      "entity_id": "global",
+      "details": "Updated settings: ",
+      "ip": "127.0.0.1",
+      "id": "aud_819ef4d1cdef",
+      "created_at": "2026-09-17T15:27:07.425Z"
+    },
+    {
+      "actor_id": "usr_admin_01",
+      "actor_name": "JFT Platform Administrator",
+      "actor_role": "superadmin",
+      "action": "UPDATE_PEAKERR_API_KEY",
+      "entity_type": "settings",
+      "entity_id": "global",
+      "details": "Peakerr API key was updated and encrypted at rest.",
+      "ip": "127.0.0.1",
+      "id": "aud_43720ab1335c",
+      "created_at": "2026-09-17T15:27:07.424Z"
+    },
+    {
       "id": "aud_01",
       "actor_id": "usr_admin_01",
       "actor_name": "JFT Platform Administrator",
@@ -594,6 +782,7 @@
       "created_at": "2026-09-16T17:29:52.561Z"
     }
   ],
+  "number_orders": [],
   "settings": {
     "platform_name": "JFT Socials",
     "primary_domain": "jftsocials.online",
@@ -603,7 +792,7 @@
     "payment_fee_percentage": 3,
     "payment_fee_enabled": true,
     "exchange_rate_usd_ngn": 1500,
-    "min_deposit_ngn": 1000,
+    "min_deposit_ngn": 100,
     "max_deposit_ngn": 5000000,
     "min_deposit_usdt": 5,
     "max_deposit_usdt": 10000,
@@ -613,6 +802,11 @@
     "maintenance_message": "JFT Socials infrastructure upgrade in progress. Order automation services remain protected.",
     "peakerr_api_url": "https://peakerr.com/api/v2",
     "peakerr_key_configured": false,
+    "eagainsmedia_api_url": "https://eagainsmedia.com/api/v2",
+    "eagainsmedia_key_configured": false,
+    "five_sim_rate_to_ngn": 25,
+    "five_sim_markup_percentage": 50,
+    "fivesim_key_configured": false,
     "sync_interval_minutes": 10,
     "low_balance_threshold_usd": 25
   }

@@ -44,7 +44,7 @@ export const Navbar: React.FC<{ onToggleSidebar?: () => void; isSidebarOpen?: bo
 
   // Active wallet balance based on selected currency
   const activeWallet = wallets.find(w => w.currency === currency);
-  const formattedBalance = activeWallet
+  const formattedBalance = activeWallet && activeWallet.available_balance !== undefined
     ? currency === 'NGN'
       ? `₦${activeWallet.available_balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
       : `${activeWallet.available_balance.toFixed(2)} USDT`

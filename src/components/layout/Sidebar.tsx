@@ -17,7 +17,10 @@ import {
   MessageCircle,
   ExternalLink,
   ChevronRight,
-  TrendingUp
+  TrendingUp,
+  PhoneCall,
+  ShoppingBag,
+  KeyRound
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext.js';
 
@@ -34,6 +37,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const customerNav = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'new-order', label: 'New Order', icon: PlusCircle, badge: 'Instant' },
+    { id: 'virtual-numbers', label: 'Virtual Numbers', icon: PhoneCall, badge: 'OTP SMS' },
+    { id: 'accounts-store', label: 'Account Store', icon: ShoppingBag, badge: 'TikTok' },
+    { id: 'my-accounts', label: 'My Accounts', icon: KeyRound },
     { id: 'orders', label: 'My Orders', icon: ListOrdered },
     { id: 'services', label: 'Service Catalog', icon: Layers },
     { id: 'wallet', label: 'Wallet & Deposits', icon: Wallet },
@@ -44,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const adminNav = [
     { id: 'admin-dashboard', label: 'Admin Overview', icon: LayoutDashboard },
     { id: 'admin-orders', label: 'Orders Control', icon: ListOrdered },
+    { id: 'admin-accounts', label: 'Account Stock', icon: KeyRound, badge: 'Stock' },
     { id: 'admin-services', label: 'Services & Sync', icon: Layers },
     { id: 'admin-pricing', label: 'Pricing & Calculator', icon: DollarSign, badge: '₦2k Min' },
     { id: 'admin-payments', label: 'Payments & Crypto', icon: CreditCard },

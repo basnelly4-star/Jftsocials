@@ -148,7 +148,7 @@ export const AccountsStoreView: React.FC = () => {
               <div>
                 <div className="text-xs text-slate-400">Your NGN Balance</div>
                 <div className="text-base font-bold text-white">
-                  ₦{ngnBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                  ₦{(ngnBalance ?? 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
                 </div>
               </div>
             </div>
@@ -239,7 +239,7 @@ export const AccountsStoreView: React.FC = () => {
                   <div>
                     <div className="text-[10px] uppercase font-semibold text-slate-500">Fixed Price</div>
                     <div className="text-xl font-extrabold text-white">
-                      ₦{cat.price_ngn.toLocaleString('en-NG')}
+                      ₦{(cat.price_ngn ?? 0).toLocaleString('en-NG')}
                     </div>
                   </div>
 
@@ -287,20 +287,20 @@ export const AccountsStoreView: React.FC = () => {
               <div className="flex justify-between text-sm">
                 <span className="text-slate-400">Amount to Debit:</span>
                 <span className="font-bold text-indigo-300">
-                  ₦{purchasingCategory.price_ngn.toLocaleString('en-NG')}
+                  ₦{(purchasingCategory.price_ngn ?? 0).toLocaleString('en-NG')}
                 </span>
               </div>
               <div className="flex justify-between text-sm pt-2 border-t border-slate-800/60">
                 <span className="text-slate-400">Your Current Balance:</span>
-                <span className={`font-semibold ${ngnBalance < purchasingCategory.price_ngn ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  ₦{ngnBalance.toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                <span className={`font-semibold ${ngnBalance < (purchasingCategory.price_ngn ?? 0) ? 'text-rose-400' : 'text-emerald-400'}`}>
+                  ₦{(ngnBalance ?? 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
                 </span>
               </div>
-              {ngnBalance >= purchasingCategory.price_ngn && (
+              {ngnBalance >= (purchasingCategory.price_ngn ?? 0) && (
                 <div className="flex justify-between text-xs text-slate-400 pt-1">
                   <span>Balance after purchase:</span>
                   <span className="font-medium text-slate-300">
-                    ₦{(ngnBalance - purchasingCategory.price_ngn).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    ₦{Math.max(0, (ngnBalance ?? 0) - (purchasingCategory.price_ngn ?? 0)).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
                   </span>
                 </div>
               )}
@@ -350,7 +350,7 @@ export const AccountsStoreView: React.FC = () => {
                       </>
                     ) : (
                       <>
-                        <span>Pay ₦{purchasingCategory.price_ngn.toLocaleString('en-NG')}</span>
+                        <span>Pay ₦{(purchasingCategory.price_ngn ?? 0).toLocaleString('en-NG')}</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}

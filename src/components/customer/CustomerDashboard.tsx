@@ -30,7 +30,8 @@ export const CustomerDashboard: React.FC = () => {
   // Compute total spent in NGN
   const totalSpentNGN = orders.reduce((sum, o) => {
     if (o.status !== 'refunded') {
-      const amount = o.currency === 'USDT' ? o.customer_charge * 1500 : o.customer_charge;
+      const charge = typeof o.customer_charge === 'number' ? o.customer_charge : 0;
+      const amount = o.currency === 'USDT' ? charge * 1500 : charge;
       return sum + amount;
     }
     return sum;
@@ -146,7 +147,7 @@ export const CustomerDashboard: React.FC = () => {
             {completedOrders.length} <span className="text-xs text-slate-400 font-normal">Completed</span>
           </div>
           <div className="text-[11px] text-slate-400 truncate">
-            Total Spent: ₦{totalSpentNGN.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+            Total Spent: ₦{(totalSpentNGN ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </div>
         </div>
       </div>
@@ -248,9 +249,9 @@ export const CustomerDashboard: React.FC = () => {
                       <td className="py-3 px-3 max-w-[200px] truncate text-slate-200">
                         {order.service_name || 'Social Growth Service'}
                       </td>
-                      <td className="py-3 px-3 font-mono">{order.quantity.toLocaleString()}</td>
+                      <td className="py-3 px-3 font-mono">{(order.quantity ?? 0).toLocaleString()}</td>
                       <td className="py-3 px-3 font-mono font-semibold text-white">
-                        {order.currency === 'NGN' ? `₦${order.customer_charge.toLocaleString()}` : `${order.customer_charge} USDT`}
+                        {order.currency === 'NGN' ? `₦${(order.customer_charge ?? 0).toLocaleString()}` : `${order.customer_charge ?? 0} USDT`}
                       </td>
                       <td className="py-3 px-3 font-mono text-[11px]">
                         {order.start_count} / <span className="text-cyan-400">{order.remains}</span>

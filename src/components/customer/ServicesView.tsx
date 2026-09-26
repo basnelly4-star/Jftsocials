@@ -121,8 +121,8 @@ export const ServicesView: React.FC = () => {
                 <div className="text-[10px] text-slate-400">Price / 1,000 units</div>
                 <div className="text-base font-extrabold font-mono text-white">
                   {currency === 'NGN'
-                    ? `₦${service.price_per_1000.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                    : `${service.price_per_1000.toFixed(2)} USDT`}
+                    ? `₦${(service.price_per_1000 ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                    : `${(service.price_per_1000 ?? 0).toFixed(2)} USDT`}
                 </div>
               </div>
 

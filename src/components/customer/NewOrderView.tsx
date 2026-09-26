@@ -387,7 +387,7 @@ export const NewOrderView: React.FC = () => {
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
                   <span className="text-slate-400">Order Quantity:</span>
                   <span className="font-mono text-white font-semibold">
-                    {priceQuote.quantity.toLocaleString()} units
+                    {(priceQuote.quantity ?? 0).toLocaleString()} units
                   </span>
                 </div>
 
@@ -400,8 +400,8 @@ export const NewOrderView: React.FC = () => {
                   <div className="text-[10px] text-slate-400">Total Customer Charge</div>
                   <div className="text-2xl font-extrabold font-mono text-white">
                     {currency === 'NGN'
-                      ? `₦${priceQuote.customer_charge.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                      : `${priceQuote.customer_charge.toFixed(2)} USDT`}
+                      ? `₦${(priceQuote.customer_charge ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                      : `${(priceQuote.customer_charge ?? 0).toFixed(2)} USDT`}
                   </div>
                   <div className="text-[10px] text-emerald-400 font-medium">
                     ✓ Includes platform floor protection & instantaneous dispatch
@@ -413,7 +413,7 @@ export const NewOrderView: React.FC = () => {
                   <div className="flex items-center justify-between text-[11px] mb-1">
                     <span className="text-slate-400">Your {currency} Balance:</span>
                     <span className={`font-mono font-bold ${isBalanceSufficient ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      {currency === 'NGN' ? `₦${currentBalance.toLocaleString()}` : `${currentBalance.toFixed(2)} USDT`}
+                      {currency === 'NGN' ? `₦${(currentBalance ?? 0).toLocaleString()}` : `${(currentBalance ?? 0).toFixed(2)} USDT`}
                     </span>
                   </div>
 
@@ -427,8 +427,8 @@ export const NewOrderView: React.FC = () => {
                         You need an additional{' '}
                         <strong>
                           {currency === 'NGN'
-                            ? `₦${(priceQuote.customer_charge - currentBalance).toLocaleString()}`
-                            : `${(priceQuote.customer_charge - currentBalance).toFixed(2)} USDT`}
+                            ? `₦${Math.max(0, (priceQuote.customer_charge ?? 0) - (currentBalance ?? 0)).toLocaleString()}`
+                            : `${Math.max(0, (priceQuote.customer_charge ?? 0) - (currentBalance ?? 0)).toFixed(2)} USDT`}
                         </strong>{' '}
                         to submit this order.
                       </p>
@@ -446,8 +446,8 @@ export const NewOrderView: React.FC = () => {
                       <span>Remaining after order:</span>
                       <span className="font-mono text-slate-200">
                         {currency === 'NGN'
-                          ? `₦${(currentBalance - priceQuote.customer_charge).toLocaleString()}`
-                          : `${(currentBalance - priceQuote.customer_charge).toFixed(2)} USDT`}
+                          ? `₦${Math.max(0, (currentBalance ?? 0) - (priceQuote.customer_charge ?? 0)).toLocaleString()}`
+                          : `${Math.max(0, (currentBalance ?? 0) - (priceQuote.customer_charge ?? 0)).toFixed(2)} USDT`}
                       </span>
                     </div>
                   )}

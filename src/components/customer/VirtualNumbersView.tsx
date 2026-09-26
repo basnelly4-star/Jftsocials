@@ -355,7 +355,7 @@ export const VirtualNumbersView: React.FC = () => {
             <Wallet className="w-3.5 h-3.5 text-indigo-400" />
             <span className="text-slate-400">Balance:</span>
             <span className="font-mono font-bold text-white">
-              {currency === 'NGN' ? `₦${userBalance.toLocaleString()}` : `$${userBalance.toFixed(2)} USDT`}
+              {currency === 'NGN' ? `₦${(userBalance ?? 0).toLocaleString()}` : `$${(userBalance ?? 0).toFixed(2)} USDT`}
             </span>
           </div>
 
@@ -592,7 +592,7 @@ export const VirtualNumbersView: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[420px] overflow-y-auto pr-1">
                   {filteredProducts.map(p => {
                     const isSelected = selectedProduct === p.name;
-                    const price = currency === 'USDT' ? `$${p.price_usdt.toFixed(2)}` : `₦${p.price_ngn.toLocaleString()}`;
+                    const price = currency === 'USDT' ? `$${(p.price_usdt ?? 0).toFixed(2)}` : `₦${(p.price_ngn ?? 0).toLocaleString()}`;
 
                     return (
                       <button
@@ -683,7 +683,7 @@ export const VirtualNumbersView: React.FC = () => {
                 ) : (
                   <>
                     <Phone className="w-4 h-4" />
-                    <span>Acquire Number ({currency === 'USDT' ? `$${currentPrice.toFixed(2)}` : `₦${currentPrice.toLocaleString()}`})</span>
+                    <span>Acquire Number ({currency === 'USDT' ? `$${(currentPrice ?? 0).toFixed(2)}` : `₦${(currentPrice ?? 0).toLocaleString()}`})</span>
                   </>
                 )}
               </button>
@@ -751,7 +751,7 @@ export const VirtualNumbersView: React.FC = () => {
                         </td>
 
                         <td className="py-3.5 px-4 font-mono font-bold text-emerald-400 whitespace-nowrap">
-                          {o.currency === 'USDT' ? `$${o.customer_charge.toFixed(2)}` : `₦${o.customer_charge.toLocaleString()}`}
+                          {o.currency === 'USDT' ? `$${(o.customer_charge ?? 0).toFixed(2)}` : `₦${(o.customer_charge ?? 0).toLocaleString()}`}
                         </td>
 
                         <td className="py-3.5 px-4 font-mono">

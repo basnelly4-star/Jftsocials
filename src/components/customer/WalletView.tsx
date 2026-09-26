@@ -353,14 +353,14 @@ export const WalletView: React.FC = () => {
                         <span className={isCredit ? 'text-emerald-400' : 'text-rose-400'}>
                           {isCredit ? '+' : '-'}{' '}
                           {tx.currency === 'NGN'
-                            ? `₦${tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                            : `${tx.amount.toFixed(2)} USDT`}
+                            ? `₦${(tx.amount ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                            : `${(tx.amount ?? 0).toFixed(2)} USDT`}
                         </span>
                       </td>
                       <td className="py-3 px-3 font-mono text-slate-400 whitespace-nowrap">
                         {tx.currency === 'NGN'
-                          ? `₦${tx.balance_after.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-                          : `${tx.balance_after.toFixed(2)} USDT`}
+                          ? `₦${(tx.balance_after ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                          : `${(tx.balance_after ?? 0).toFixed(2)} USDT`}
                       </td>
                       <td className="py-3 px-3 text-slate-400 text-[11px] whitespace-nowrap">
                         {new Date(tx.created_at).toLocaleString()}

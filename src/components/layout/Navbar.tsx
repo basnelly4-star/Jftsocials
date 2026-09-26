@@ -44,11 +44,11 @@ export const Navbar: React.FC<{ onToggleSidebar?: () => void; isSidebarOpen?: bo
 
   // Active wallet balance based on selected currency
   const activeWallet = wallets.find(w => w.currency === currency);
-  const formattedBalance = activeWallet && activeWallet.available_balance !== undefined
-    ? currency === 'NGN'
-      ? `₦${activeWallet.available_balance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
-      : `${activeWallet.available_balance.toFixed(2)} USDT`
-    : currency === 'NGN' ? '₦0.00' : '0.00 USDT';
+  const rawBalance = activeWallet?.available_balance;
+  const numBalance = typeof rawBalance === 'number' && !isNaN(rawBalance) ? rawBalance : 0;
+  const formattedBalance = currency === 'NGN'
+    ? `₦${numBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+    : `${numBalance.toFixed(2)} USDT`;
 
   const isPrivileged = user && ['admin', 'superadmin', 'manager'].includes(user.role);
 

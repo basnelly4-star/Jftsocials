@@ -271,7 +271,7 @@ export const AdminAccountsView: React.FC = () => {
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5">
           <div className="text-xs text-slate-400">Total Account Revenue</div>
           <div className="text-2xl font-extrabold text-emerald-400 mt-1">
-            ₦{totalRevenue.toLocaleString('en-NG')}
+            ₦{(totalRevenue ?? 0).toLocaleString('en-NG')}
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">Settled via wallet debits</div>
         </div>
@@ -314,7 +314,7 @@ export const AdminAccountsView: React.FC = () => {
                           <div className="text-[11px] text-slate-500 font-mono">{cat.id}</div>
                         </td>
                         <td className="px-4 py-3.5 font-bold text-slate-200">
-                          ₦{cat.price_ngn.toLocaleString('en-NG')}
+                          ₦{(cat.price_ngn ?? 0).toLocaleString('en-NG')}
                         </td>
                         <td className="px-4 py-3.5">
                           {isOutOfStock ? (
@@ -611,7 +611,7 @@ export const AdminAccountsView: React.FC = () => {
                       <td className="px-4 py-3.5 font-mono text-slate-300">{order.user_id}</td>
                       <td className="px-4 py-3.5 font-semibold text-white">{order.category_name}</td>
                       <td className="px-4 py-3.5 font-bold text-emerald-400">
-                        ₦{order.price_charged.toLocaleString('en-NG')}
+                        ₦{(order.price_charged ?? 0).toLocaleString('en-NG')}
                       </td>
                       <td className="px-4 py-3.5 text-slate-400">
                         {new Date(order.created_at).toLocaleDateString(undefined, {

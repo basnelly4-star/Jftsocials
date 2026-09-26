@@ -216,13 +216,13 @@ export const AdminOrdersView: React.FC = () => {
                       </td>
 
                       <td className="py-3.5 px-3 font-mono">
-                        {order.quantity.toLocaleString()}
+                        {(order.quantity ?? 0).toLocaleString()}
                       </td>
 
                       <td className="py-3.5 px-3 font-mono font-bold text-white whitespace-nowrap">
                         {order.currency === 'NGN'
-                          ? `₦${order.customer_charge.toLocaleString()}`
-                          : `${order.customer_charge} USDT`}
+                          ? `₦${(order.customer_charge ?? 0).toLocaleString()}`
+                          : `${order.customer_charge ?? 0} USDT`}
                       </td>
 
                       <td className="py-3.5 px-3 font-mono text-slate-400 whitespace-nowrap">

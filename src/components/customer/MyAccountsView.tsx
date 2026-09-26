@@ -227,7 +227,7 @@ export const MyAccountsView: React.FC = () => {
                     <div className="text-right">
                       <div className="text-[10px] uppercase font-bold text-slate-500">Paid</div>
                       <div className="text-sm font-extrabold text-white">
-                        ₦{order.price_charged.toLocaleString('en-NG')}
+                        ₦{(order.price_charged ?? 0).toLocaleString('en-NG')}
                       </div>
                     </div>
 

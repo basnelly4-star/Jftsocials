@@ -5,6 +5,7 @@ import { Sidebar } from './components/layout/Sidebar.js';
 import { WhatsAppBadge } from './components/layout/WhatsAppBadge.js';
 import { Onboarding3DModal } from './components/3d/Onboarding3DModal.js';
 import { AuthModal } from './components/auth/AuthModal.js';
+import { ErrorBoundary } from './components/common/ErrorBoundary.js';
 
 // Public Views
 import { LandingPage } from './components/public/LandingPage.js';
@@ -115,7 +116,9 @@ const MainLayout: React.FC = () => {
             user ? 'md:ml-64 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full' : 'w-full'
           }`}
         >
-          {renderCurrentView()}
+          <ErrorBoundary fallbackTitle="View Failed to Render">
+            {renderCurrentView()}
+          </ErrorBoundary>
         </main>
       </div>
 
@@ -150,9 +153,11 @@ const MainLayout: React.FC = () => {
 
 export function App() {
   return (
-    <AppProvider>
-      <MainLayout />
-    </AppProvider>
+    <ErrorBoundary fallbackTitle="JFT Socials Platform Recovery">
+      <AppProvider>
+        <MainLayout />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }
 

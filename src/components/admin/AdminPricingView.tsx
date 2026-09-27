@@ -16,8 +16,8 @@ export const AdminPricingView: React.FC = () => {
   const { token, showToast } = useApp();
 
   // Settings State
-  const [markupPercent, setMarkupPercent] = useState<number>(50);
-  const [minMarkupNGN, setMinMarkupNGN] = useState<number>(2000);
+  const [markupPercent, setMarkupPercent] = useState<number>(20);
+  const [minMarkupNGN, setMinMarkupNGN] = useState<number>(10);
   const [usdtRate, setUsdtRate] = useState<number>(1500);
   const [depositFeePercent, setDepositFeePercent] = useState<number>(3);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -37,10 +37,10 @@ export const AdminPricingView: React.FC = () => {
       .then(data => {
         if (data.success && data.settings) {
           const s = data.settings;
-          setMarkupPercent(s.default_markup_percent || 50);
-          setMinMarkupNGN(s.minimum_markup_ngn || 2000);
-          setUsdtRate(s.exchange_rate_usdt_ngn || 1500);
-          setDepositFeePercent(s.deposit_fee_percent || 3);
+          setMarkupPercent(s.default_markup_percentage ?? s.default_markup_percent ?? 20);
+          setMinMarkupNGN(s.default_min_margin_ngn ?? s.minimum_markup_ngn ?? 10);
+          setUsdtRate(s.exchange_rate_usd_ngn ?? s.exchange_rate_usdt_ngn ?? 1500);
+          setDepositFeePercent(s.payment_fee_percentage ?? s.deposit_fee_percent ?? 3);
         }
       })
       .catch(console.error);

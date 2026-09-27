@@ -73,6 +73,51 @@ export interface Service {
   synced_at: string;
 }
 
+export type ServiceCategoryType =
+  | 'followers'
+  | 'likes'
+  | 'comments'
+  | 'saves'
+  | 'shares'
+  | 'views'
+  | 'other';
+
+export interface ServiceProviderOption {
+  service_id: string;
+  provider_id: string; // 'peakerr' | 'eagainsmedia'
+  provider_service_id: number;
+  provider_name: string;
+  original_name: string;
+  provider_rate: number; // in NGN per 1,000 units
+  customer_price_per_1000: number; // Provider rate + 20% markup
+  min_quantity: number;
+  max_quantity: number;
+  refill_supported: boolean;
+  cancel_supported: boolean;
+  is_cheapest: boolean;
+}
+
+export interface GroupedService {
+  id: string;
+  name: string;
+  normalized_key: string;
+  platform: string;
+  category_id: string;
+  category_type: ServiceCategoryType;
+  description: string;
+  refill_supported: boolean;
+  cancel_supported: boolean;
+  min_quantity: number;
+  max_quantity: number;
+  best_price_per_1000: number;
+  best_provider_id: string;
+  options_count: number;
+  provider_options: ServiceProviderOption[];
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export type OrderStatus =
   | 'pending'
   | 'processing'
@@ -93,6 +138,7 @@ export interface Order {
   provider_id: string;
   provider_order_id?: number | string;
   target_link: string;
+  link?: string;
   quantity: number;
   provider_charge: number; // Historical provider cost for this exact order
   customer_charge: number; // Final customer price charged

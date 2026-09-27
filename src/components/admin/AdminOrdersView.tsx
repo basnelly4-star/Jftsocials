@@ -100,9 +100,10 @@ export const AdminOrdersView: React.FC = () => {
   };
 
   const filteredOrders = orders.filter(o => {
+    const rawLink = (o.link || (o as any).target_link || '').toLowerCase();
     const matchesSearch =
       o.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      o.link.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      rawLink.includes(searchQuery.toLowerCase()) ||
       (o.customer_name && o.customer_name.toLowerCase().includes(searchQuery.toLowerCase()));
 
     if (!matchesSearch) return false;
@@ -204,15 +205,26 @@ export const AdminOrdersView: React.FC = () => {
                         <div className="truncate font-medium text-slate-200">
                           {order.service_name || 'Service'}
                         </div>
-                        <a
-                          href={order.link.startsWith('http') ? order.link : `https://${order.link}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[10px] text-cyan-400 hover:underline truncate inline-flex items-center gap-1"
-                        >
-                          <span className="truncate max-w-[140px]">{order.link}</span>
-                          <ExternalLink className="w-2.5 h-2.5" />
-                        </a>
+                        {(() => {
+                          const displayLink = order.link || (order as any).target_link || '';
+                          if (!displayLink) {
+                            return <span className="text-[10px] text-slate-500 italic block mt-0.5">No target link</span>;
+                          }
+                          const href = displayLink.startsWith('http')
+                            ? displayLink
+                            : (displayLink.startsWith('@') ? `https://tiktok.com/${displayLink}` : `https://${displayLink}`);
+                          return (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-cyan-400 hover:underline truncate inline-flex items-center gap-1"
+                            >
+                              <span className="truncate max-w-[140px]">{displayLink}</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          );
+                        })()}
                       </td>
 
                       <td className="py-3.5 px-3 font-mono">

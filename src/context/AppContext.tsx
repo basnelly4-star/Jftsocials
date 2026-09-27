@@ -126,21 +126,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [token]);
 
-  // Auto-polling for real-time live order updates every 8 seconds
+  // Initial session restoration when token is present
   useEffect(() => {
-    if (token && user) {
+    if (token) {
       refreshUserData();
       refreshOrders();
       refreshNotifications();
-
-      const timer = setInterval(() => {
-        refreshOrders();
-        refreshUserData();
-        refreshNotifications();
-      }, 8000);
-
-      return () => clearInterval(timer);
     }
+  }, [token, refreshUserData, refreshOrders, refreshNotifications]);
+
+  // Auto-polling for real-time live order updates every 8 seconds when authenticated
+  useEffect(() => {
+    if (!token) return;
+
+    const timer = setInterval(() => {
+      refreshOrders();
+      refreshUserData();
+      refreshNotifications();
+    }, 8000);
+
+    return () => clearInterval(timer);
   }, [token, refreshUserData, refreshOrders, refreshNotifications]);
 
   const login = (newToken: string, newUser: User) => {

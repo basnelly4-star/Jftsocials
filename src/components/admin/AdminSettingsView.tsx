@@ -31,7 +31,7 @@ export const AdminSettingsView: React.FC = () => {
   const [peakerrConfigured, setPeakerrConfigured] = useState(false);
 
   // Eagainsmedia Provider
-  const [eagainsmediaApiUrl, setEagainsmediaApiUrl] = useState('https://eagainsmedia.com.ng/api/v2');
+  const [eagainsmediaApiUrl, setEagainsmediaApiUrl] = useState('https://engainsmedia.com/api/v2');
   const [eagainsmediaApiKey, setEagainsmediaApiKey] = useState('');
   const [eagainsmediaConfigured, setEagainsmediaConfigured] = useState(false);
 
@@ -65,7 +65,7 @@ export const AdminSettingsView: React.FC = () => {
           setPeakerrApiUrl(s.peakerr_api_url || 'https://peakerr.com/api/v2');
           setPeakerrConfigured(Boolean(s.peakerr_key_configured));
 
-          setEagainsmediaApiUrl(s.eagainsmedia_api_url || 'https://eagainsmedia.com.ng/api/v2');
+          setEagainsmediaApiUrl(s.eagainsmedia_api_url || 'https://engainsmedia.com/api/v2');
           setEagainsmediaConfigured(Boolean(s.eagainsmedia_key_configured));
 
           setFivesimConfigured(Boolean(s.fivesim_key_configured));

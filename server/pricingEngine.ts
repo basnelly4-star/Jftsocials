@@ -18,10 +18,10 @@ export interface PricingOptions {
 /**
  * JFT Socials Core Pricing & Profit Engine
  *
- * Implements the strict mathematical requirement:
- * Provider Cost = (Peakerr Rate * Customer Quantity) / 1000
- * Calculated Percentage Markup = Provider Cost * (Markup% / 100) [Default 50%]
- * Required Markup = MAX(Calculated Percentage Markup, Min Margin Target) [Default ₦2,000]
+ * Implements the mathematical requirement:
+ * Provider Cost = (Provider Rate in NGN * Customer Quantity) / 1000
+ * Calculated Percentage Markup = Provider Cost * (Markup% / 100) [Default 20%]
+ * Required Markup = MAX(Calculated Percentage Markup, Min Margin Target) [Default ₦10]
  * Final Customer Price = Provider Cost + Required Markup
  */
 export function calculateOrderPrice(options: PricingOptions): PriceCalculationResult {
@@ -49,6 +49,7 @@ export function calculateOrderPrice(options: PricingOptions): PriceCalculationRe
   // Check if a fixed custom selling price exists for this service (per 1,000 units in NGN)
   let customerPriceNGN: number;
   let appliedMarkupNGN: number;
+  // Standard JFT Socials markup: Adds 20% on the initial provider cost (no fixed 2000 floor)
   let calculatedPercentMarkupNGN = roundMoney(providerCostNGN * (markupPercentage / 100));
 
   if (service.custom_price && service.custom_price > 0) {
@@ -56,8 +57,8 @@ export function calculateOrderPrice(options: PricingOptions): PriceCalculationRe
     customerPriceNGN = roundMoney((service.custom_price * quantity) / 1000);
     appliedMarkupNGN = roundMoney(customerPriceNGN - providerCostNGN);
   } else {
-    // Standard JFT Socials Algorithm: MAX(Calculated %, Minimum Markup)
-    appliedMarkupNGN = Math.max(calculatedPercentMarkupNGN, minMarginNGN);
+    // Pure percentage markup (default 20%) without pressed 2000 floor
+    appliedMarkupNGN = calculatedPercentMarkupNGN;
     customerPriceNGN = roundMoney(providerCostNGN + appliedMarkupNGN);
   }
 
@@ -123,7 +124,7 @@ export function calculateOrderPrice(options: PricingOptions): PriceCalculationRe
     effective_profit_percentage: effectiveProfitPercentage,
     currency,
     exchange_rate_used: exchangeRate,
-    pricing_rule_version: 'v2.0-min-floor-2000'
+    pricing_rule_version: 'v3.0-percent-markup-20'
   };
 }
 

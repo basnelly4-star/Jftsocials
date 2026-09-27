@@ -21,7 +21,8 @@ import {
   NumberOrder,
   AccountCategory,
   AccountListing,
-  AccountOrder
+  AccountOrder,
+  GroupedService
 } from '../src/types/index.js';
 
 interface DatabaseSchema {
@@ -30,6 +31,7 @@ interface DatabaseSchema {
   wallet_transactions: WalletTransaction[];
   categories: Category[];
   services: Service[];
+  grouped_services?: GroupedService[];
   orders: Order[];
   number_orders?: NumberOrder[];
   accountCategories?: AccountCategory[];
@@ -51,8 +53,8 @@ const DEFAULT_SETTINGS: SystemSettings = {
   platform_name: 'JFT Socials',
   primary_domain: 'jftsocials.online',
   whatsapp_support_number: '+2347018409997',
-  default_markup_percentage: 50, // 50%
-  default_min_margin_ngn: 2000,  // ₦2,000 minimum platform margin
+  default_markup_percentage: 20, // 20%
+  default_min_margin_ngn: 10,    // ₦10 minimum platform margin
   payment_fee_percentage: 3,     // 3% payment/deposit fee
   payment_fee_enabled: true,
   exchange_rate_usd_ngn: 1500,   // ₦1,500 = 1 USDT
@@ -66,7 +68,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   maintenance_message: 'JFT Socials infrastructure upgrade in progress. Order automation services remain protected.',
   peakerr_api_url: 'https://peakerr.com/api/v2',
   peakerr_key_configured: false,
-  eagainsmedia_api_url: 'https://eagainsmedia.com/api/v2',
+  eagainsmedia_api_url: 'https://engainsmedia.com/api/v2',
   eagainsmedia_key_configured: false,
   five_sim_rate_to_ngn: 0,
   five_sim_markup_percentage: 50,
@@ -76,36 +78,43 @@ const DEFAULT_SETTINGS: SystemSettings = {
 };
 
 // --- Credential encryption (AES-256-GCM) for secrets stored in the JSON DB ---
-// Supports key fallbacks and rotation so changing ENCRYPTION_KEY or running
-// in environments with different configs does not crash or corrupt state.
+// Enforces that ENCRYPTION_KEY is provided in the environment or .env file (>= 32 chars).
+// Any insecure hardcoded fallback has been removed to protect provider secrets at rest.
 function getCandidateRawKeys(): string[] {
   const keys: string[] = [];
-  if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.length >= 32) {
-    keys.push(process.env.ENCRYPTION_KEY);
+  if (process.env.ENCRYPTION_KEY && process.env.ENCRYPTION_KEY.trim().length >= 32) {
+    keys.push(process.env.ENCRYPTION_KEY.trim());
   }
   try {
     const envPath = path.resolve(process.cwd(), '.env');
     if (fs.existsSync(envPath)) {
       const content = fs.readFileSync(envPath, 'utf8');
       const match = content.match(/^ENCRYPTION_KEY=["']?([^"'\r\n]+)["']?/m);
-      if (match && match[1] && match[1].length >= 32 && !keys.includes(match[1])) {
-        keys.push(match[1]);
+      if (match && match[1] && match[1].trim().length >= 32 && !keys.includes(match[1].trim())) {
+        keys.push(match[1].trim());
       }
     }
   } catch (e) {
     // ignore
   }
-  const fallback = '760275949215ac45d73777ef37fdec5805aa5981312db284ea88fae6828b350b';
-  if (!keys.includes(fallback)) {
-    keys.push(fallback);
-  }
   return keys;
+}
+
+export function validateEncryptionConfig(): void {
+  const candidates = getCandidateRawKeys();
+  if (candidates.length === 0) {
+    throw new Error(
+      'FATAL CONFIGURATION ERROR: ENCRYPTION_KEY environment variable is not set or is shorter than 32 characters. ' +
+      'A secure 32+ character key is required to encrypt provider API keys and sensitive credentials at rest. ' +
+      'Please set ENCRYPTION_KEY in your environment or .env file before running in production.'
+    );
+  }
 }
 
 function getEncryptionKey(): Buffer {
   const candidates = getCandidateRawKeys();
   if (candidates.length === 0) {
-    throw new Error('ENCRYPTION_KEY is missing or too short in .env (need at least 32 characters).');
+    validateEncryptionConfig();
   }
   return crypto.createHash('sha256').update(candidates[0]).digest();
 }
@@ -123,7 +132,7 @@ export function encryptSecret(plainText: string): string {
 export function decryptSecret(stored: string, onFallbackKeyUsed?: () => void): string {
   const rawKeys = getCandidateRawKeys();
   if (rawKeys.length === 0) {
-    throw new Error('ENCRYPTION_KEY is missing or too short in .env (need at least 32 characters).');
+    validateEncryptionConfig();
   }
 
   const raw = Buffer.from(stored, 'base64');
@@ -194,6 +203,7 @@ class Database {
   private isWriting: boolean = false;
 
   constructor() {
+    validateEncryptionConfig();
     this.ensureDirectory();
     this.data = this.loadOrCreate();
   }
@@ -208,7 +218,10 @@ class Database {
     if (this.isWriting) return;
     this.isWriting = true;
     try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
+      this.ensureDirectory();
+      const tempFile = `${DB_FILE}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      fs.writeFileSync(tempFile, JSON.stringify(this.data, null, 2), 'utf-8');
+      fs.renameSync(tempFile, DB_FILE);
     } catch (err) {
       console.error('[Database] Failed to write database file:', err);
     } finally {
@@ -224,6 +237,9 @@ class Database {
         if (parsed.users && parsed.orders && parsed.settings) {
           if (!parsed.number_orders) {
             parsed.number_orders = [];
+          }
+          if (!parsed.grouped_services) {
+            parsed.grouped_services = [];
           }
           if (!parsed.accountCategories) {
             parsed.accountCategories = [];
@@ -347,7 +363,7 @@ class Database {
         description: 'Instant start within 5-15 mins. Real profiles with posts and profile pictures. 30 days automated refill guarantee.',
         category_id: 'cat_ig',
         provider_rate: 1425, // ₦1,425 per 1k (Peakerr rate)
-        min_quantity: 50,
+        min_quantity: 10,
         max_quantity: 50000,
         refill_supported: true,
         cancel_supported: true,
@@ -398,7 +414,7 @@ class Database {
         description: 'High grade TikTok followers suitable for LIVE streaming unlocking (1,000+ required) and Creator Rewards.',
         category_id: 'cat_tk',
         provider_rate: 2700, // ₦2,700 per 1k
-        min_quantity: 50,
+        min_quantity: 10,
         max_quantity: 30000,
         refill_supported: true,
         cancel_supported: false,
@@ -473,16 +489,16 @@ class Database {
         target_link: 'https://instagram.com/jftsocials_official',
         quantity: 1000,
         provider_charge: 1425,
-        customer_charge: 3425, // 1425 + 2000 min markup
-        markup_amount: 2000,
-        markup_percentage: 50,
-        minimum_markup: 2000,
-        applied_markup: 2000,
-        payment_fee: 102.75,
-        net_profit: 1897.25,
+        customer_charge: 1710, // 1425 + 20% markup (285)
+        markup_amount: 285,
+        markup_percentage: 20,
+        minimum_markup: 0,
+        applied_markup: 285,
+        payment_fee: 51.3,
+        net_profit: 233.7,
         currency: 'NGN',
         exchange_rate_used: 1500,
-        pricing_rule_version: 'v2.0-min-floor-2000',
+        pricing_rule_version: 'v3.0-percent-markup-20',
         start_count: 3200,
         remains: 0,
         status: 'completed',
@@ -505,16 +521,16 @@ class Database {
         target_link: 'https://www.tiktok.com/@creativelabs_ng',
         quantity: 1000,
         provider_charge: 2700,
-        customer_charge: 4700, // 2700 + 2000 min margin
-        markup_amount: 2000,
-        markup_percentage: 50,
-        minimum_markup: 2000,
-        applied_markup: 2000,
-        payment_fee: 141.0,
-        net_profit: 1859.0,
+        customer_charge: 3240, // 2700 + 20% markup (540)
+        markup_amount: 540,
+        markup_percentage: 20,
+        minimum_markup: 0,
+        applied_markup: 540,
+        payment_fee: 97.2,
+        net_profit: 442.8,
         currency: 'NGN',
         exchange_rate_used: 1500,
-        pricing_rule_version: 'v2.0-min-floor-2000',
+        pricing_rule_version: 'v3.0-percent-markup-20',
         start_count: 1540,
         remains: 230,
         status: 'in_progress',
@@ -1006,7 +1022,22 @@ class Database {
     return this.data.orders.find(o => o.id === id);
   }
 
+  public generateUniqueOrderId(): string {
+    let orderId = '';
+    let attempts = 0;
+    do {
+      const timePart = Date.now().toString(36).toUpperCase();
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      orderId = `JFT-ORD-${timePart}-${randomSuffix}`;
+      attempts++;
+    } while (this.findOrderById(orderId) && attempts < 100);
+    return orderId;
+  }
+
   public createOrder(order: Order): Order {
+    if (this.findOrderById(order.id)) {
+      throw new Error(`Duplicate order ID collision detected: ${order.id}. Order IDs must be unique.`);
+    }
     this.data.orders.unshift(order);
     this.save();
     return order;
@@ -1231,6 +1262,25 @@ class Database {
 
   public setServices(services: Service[]) {
     this.data.services = services;
+    this.save();
+  }
+
+  // --- GROUPED SERVICES (PARENT-CHILD MULTI-PROVIDER AGGREGATION) ---
+
+  public getGroupedServices(onlyActive: boolean = true): GroupedService[] {
+    const list = this.data.grouped_services || [];
+    if (onlyActive) {
+      return list.filter(g => g.active);
+    }
+    return list.slice();
+  }
+
+  public findGroupedServiceById(id: string): GroupedService | undefined {
+    return (this.data.grouped_services || []).find(g => g.id === id);
+  }
+
+  public setGroupedServices(grouped: GroupedService[]) {
+    this.data.grouped_services = grouped;
     this.save();
   }
 

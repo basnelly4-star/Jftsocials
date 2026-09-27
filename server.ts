@@ -20,8 +20,12 @@ app.use(express.urlencoded({ extended: true }));
 
 // Initialize Provider Clients & Automation Engine
 // Prefer keys saved through the admin panel (encrypted in DB) over .env values
+const initialSettings = db.getSettings();
 const persistedPeakerrKey = db.getProviderApiKey('peakerr');
-const peakerr = new PeakerrClient(persistedPeakerrKey || process.env.PEAKERR_API_KEY || '');
+const peakerr = new PeakerrClient(
+  persistedPeakerrKey || process.env.PEAKERR_API_KEY || '',
+  initialSettings.peakerr_api_url
+);
 if (persistedPeakerrKey && peakerr.isLive()) {
   console.log('[Startup] Loaded Peakerr API key from persisted settings.');
 } else if (process.env.PEAKERR_API_KEY && peakerr.isLive()) {
@@ -31,7 +35,10 @@ if (persistedPeakerrKey && peakerr.isLive()) {
 }
 
 const persistedEagainsmediaKey = db.getProviderApiKey('eagainsmedia');
-const eagainsmedia = new EagainsmediaClient(persistedEagainsmediaKey || process.env.EAGAINSMEDIA_API_KEY || '');
+const eagainsmedia = new EagainsmediaClient(
+  persistedEagainsmediaKey || process.env.EAGAINSMEDIA_API_KEY || '',
+  initialSettings.eagainsmedia_api_url
+);
 if (persistedEagainsmediaKey) {
   console.log('[Startup] Loaded Eagainsmedia API key from persisted settings.');
 } else if (process.env.EAGAINSMEDIA_API_KEY) {
@@ -329,6 +336,7 @@ app.get('/api/services', (req, res) => {
 
   // Map services to customer view with calculated price for 1,000 units
   // CRITICAL: Filter out provider_rate, provider_charge, profit metrics!
+  // Rank from cheapest to highest
   const customerServices = services.map(service => {
     const category = categories.find(c => c.id === service.category_id);
     const pricing = calculateOrderPrice({
@@ -344,16 +352,47 @@ app.get('/api/services', (req, res) => {
       name: service.name,
       description: service.description,
       category_id: service.category_id,
-      min_quantity: service.min_quantity,
+      min_quantity: service.min_quantity === 50 ? 10 : (service.min_quantity || 10),
       max_quantity: service.max_quantity,
       refill_supported: service.refill_supported,
       cancel_supported: service.cancel_supported,
       price_per_1000: pricing.customer_price,
       currency
     };
-  });
+  }).sort((a, b) => a.price_per_1000 - b.price_per_1000);
 
   res.json({ success: true, services: customerServices });
+});
+
+// Grouped services catalog (cross-provider aggregated parent entities with child provider options)
+app.get('/api/services/grouped', (req, res) => {
+  const currency = (req.query.currency as Currency) || 'NGN';
+  const settings = db.getSettings();
+  const exchangeRate = settings.exchange_rate_usd_ngn > 0 ? settings.exchange_rate_usd_ngn : 1500;
+  const groups = db.getGroupedServices(true);
+
+  // If currency is USDT, convert prices dynamically
+  const converted = groups.map(g => {
+    const bestPrice = currency === 'USDT'
+      ? Math.round((g.best_price_per_1000 / exchangeRate) * 100) / 100
+      : g.best_price_per_1000;
+
+    const options = (g.provider_options || []).map(opt => ({
+      ...opt,
+      customer_price_per_1000: currency === 'USDT'
+        ? Math.round((opt.customer_price_per_1000 / exchangeRate) * 100) / 100
+        : opt.customer_price_per_1000
+    }));
+
+    return {
+      ...g,
+      currency,
+      best_price_per_1000: bestPrice,
+      provider_options: options
+    };
+  });
+
+  res.json({ success: true, groups: converted });
 });
 
 // Calculate live price for specific quantity before order submission (supports GET & POST)
@@ -423,33 +462,55 @@ app.post('/api/services/calculate-price', handleCalculatePrice);
 app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => {
   try {
     const user = req.user!;
-    const { service_id, target_link, quantity, currency = 'NGN' } = req.body;
+    const rawServiceId = req.body.service_id || req.body.serviceId || req.body.service;
+    const rawTargetLink = req.body.target_link || req.body.link || req.body.targetLink || req.body.url || '';
+    const rawQuantity = req.body.quantity;
+    const currency = req.body.currency || 'NGN';
 
-    if (!service_id || !target_link || !quantity) {
+    if (!rawServiceId || !rawTargetLink || rawQuantity === undefined || rawQuantity === null || rawQuantity === '') {
       return res.status(400).json({ success: false, error: 'Service, target link, and quantity are required.' });
     }
 
-    const numQuantity = parseInt(quantity, 10);
+    const service_id = String(rawServiceId).trim();
+    let target_link = String(rawTargetLink).trim();
+
+    const numQuantity = parseInt(String(rawQuantity), 10);
     if (isNaN(numQuantity) || numQuantity <= 0) {
       return res.status(400).json({ success: false, error: 'Quantity must be a positive integer.' });
     }
 
-    const service = db.findServiceById(service_id);
+    let service = db.findServiceById(service_id);
+    // If client sent a grouped service ID (e.g. grp_tiktok_views_standard), resolve to best child option
+    if (!service && service_id.startsWith('grp_')) {
+      const grouped = db.findGroupedServiceById(service_id);
+      if (grouped && grouped.provider_options && grouped.provider_options.length > 0) {
+        const bestOption = grouped.provider_options[0];
+        service = db.findServiceById(bestOption.service_id);
+      }
+    }
+
     if (!service || !service.active || !service.ordering_enabled) {
       return res.status(400).json({ success: false, error: 'This service is currently unavailable for ordering.' });
     }
 
-    if (numQuantity < service.min_quantity) {
-      return res.status(400).json({ success: false, error: `Minimum quantity for this service is ${service.min_quantity.toLocaleString()}.` });
+    const minRequired = service.min_quantity === 50 ? 10 : (service.min_quantity || 10);
+    if (numQuantity < minRequired) {
+      return res.status(400).json({ success: false, error: `Minimum quantity for this service is ${minRequired.toLocaleString()}.` });
     }
 
     if (numQuantity > service.max_quantity) {
       return res.status(400).json({ success: false, error: `Maximum quantity for this service is ${service.max_quantity.toLocaleString()}.` });
     }
 
-    // Link URL validation
+    // Flexible link URL validation and normalization
     if (!target_link.startsWith('http://') && !target_link.startsWith('https://') && !target_link.startsWith('@')) {
-      return res.status(400).json({ success: false, error: 'Please enter a valid link or handle (e.g. https://instagram.com/user or @username).' });
+      if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/i.test(target_link)) {
+        target_link = `https://${target_link}`;
+      } else if (!target_link.includes('/') && !target_link.includes(' ')) {
+        target_link = `@${target_link}`;
+      } else {
+        return res.status(400).json({ success: false, error: 'Please enter a valid link or handle (e.g. https://instagram.com/user or @username).' });
+      }
     }
 
     const settings = db.getSettings();
@@ -463,8 +524,18 @@ app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => 
       settings
     });
 
-    // 2. Check wallet balance and debit atomically
-    const orderId = `JFT-ORD-${Math.floor(10000 + Math.random() * 90000)}`;
+    // 2. Validate wallet balance before debiting
+    const userWallets = db.getWallets(user.id);
+    const activeWallet = userWallets.find(w => w.currency === orderCurrency);
+    const availableBalance = activeWallet?.available_balance || 0;
+    if (availableBalance < pricing.customer_price) {
+      return res.status(400).json({
+        success: false,
+        error: `Insufficient ${orderCurrency} balance. Required: ${orderCurrency === 'NGN' ? '₦' : ''}${pricing.customer_price.toLocaleString()} ${orderCurrency}, Available: ${orderCurrency === 'NGN' ? '₦' : ''}${availableBalance.toLocaleString()} ${orderCurrency}. Please fund your wallet first.`
+      });
+    }
+
+    const orderId = db.generateUniqueOrderId();
     const debitResult = db.debitWallet(
       user.id,
       orderCurrency,
@@ -475,16 +546,26 @@ app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => 
     );
 
     // 3. Dispatch to Provider API v2
-    const targetProviderId = service.provider_id || 'peakerr';
+    const targetProviderId = service.provider_id || (service.id.includes('eagains') ? 'eagainsmedia' : 'peakerr');
     const providerClient = getProviderClient(targetProviderId);
     let providerOrderId: number | string = 0;
     let dispatchFailed = false;
+
+    let providerServiceId = service.provider_service_id;
+    if (!providerServiceId) {
+      const match = service.id.match(/\d+$/);
+      if (match) providerServiceId = parseInt(match[0], 10);
+    }
+
+    console.log(`[OrderCreation] Order ${orderId}: Dispatching to provider=${targetProviderId}, providerServiceId=${providerServiceId}, qty=${numQuantity}, link=${target_link}`);
+
     try {
       const providerRes = await providerClient.addOrder(
-        service.provider_service_id,
+        providerServiceId || 0,
         target_link,
         numQuantity
       );
+      console.log(`[OrderCreation] Provider response for ${orderId}:`, providerRes);
       if (providerRes.orderId) {
         providerOrderId = providerRes.orderId;
       } else {
@@ -494,9 +575,36 @@ app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => 
     } catch (e: any) {
       dispatchFailed = true;
       console.error(`[OrderCreation] Provider call failed for ${orderId}:`, e);
-      // The order is still recorded below with 'processing' status. The
-      // AutomationEngine's retryFailedDispatches loop will retry it on a
-      // schedule, and auto-refund the customer if it keeps failing.
+    }
+
+    // Multi-provider automatic failover: If primary provider (e.g. Peakerr) fails or lacks funds, route to Engainsmedia
+    if (dispatchFailed && targetProviderId === 'peakerr') {
+      try {
+        const engainsClient = getProviderClient('eagainsmedia');
+        if (engainsClient && engainsClient.isLive()) {
+          const engService = db.getServices(true).find(s =>
+            (s.provider_id === 'eagainsmedia' || s.id.includes('eagains')) &&
+            s.category_id === service.category_id &&
+            /view/i.test(s.name) === /view/i.test(service.name)
+          );
+          if (engService && engService.provider_service_id) {
+            console.log(`[OrderCreation] Multi-provider failover: Routing order ${orderId} to Engainsmedia (Service #${engService.provider_service_id})...`);
+            const fallbackRes = await engainsClient.addOrder(
+              engService.provider_service_id,
+              target_link,
+              numQuantity
+            );
+            console.log(`[OrderCreation] Engainsmedia failover response for ${orderId}:`, fallbackRes);
+            if (fallbackRes && fallbackRes.orderId) {
+              providerOrderId = fallbackRes.orderId;
+              dispatchFailed = false;
+              console.log(`[OrderCreation] Failover to Engainsmedia SUCCESS: Remote Order ID #${providerOrderId}`);
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[OrderCreation] Failover attempt to Engainsmedia error:`, err.message);
+      }
     }
 
     // 4. Record order with historical pricing snapshot
@@ -554,6 +662,7 @@ app.post('/api/orders', authenticate, async (req: AuthenticatedRequest, res) => 
         id: newOrder.id,
         service_name: newOrder.service_name,
         target_link: newOrder.target_link,
+        link: newOrder.target_link,
         quantity: newOrder.quantity,
         customer_charge: newOrder.customer_charge,
         currency: newOrder.currency,
@@ -576,6 +685,7 @@ app.get('/api/orders', authenticate, (req: AuthenticatedRequest, res) => {
     id: o.id,
     service_name: o.service_name,
     target_link: o.target_link,
+    link: o.target_link || o.link || '',
     quantity: o.quantity,
     customer_charge: o.customer_charge,
     currency: o.currency,
@@ -606,6 +716,7 @@ app.get('/api/orders/:id', authenticate, (req: AuthenticatedRequest, res) => {
       id: order.id,
       service_name: order.service_name,
       target_link: order.target_link,
+      link: order.target_link || order.link || '',
       quantity: order.quantity,
       customer_charge: order.customer_charge,
       currency: order.currency,
@@ -674,8 +785,8 @@ app.post('/api/orders/:id/cancel', authenticate, async (req: AuthenticatedReques
       return res.status(404).json({ success: false, error: 'Order not found' });
     }
 
-    if (!['pending', 'processing'].includes(order.status) || !order.cancel_eligible) {
-      return res.status(400).json({ success: false, error: 'Order is already in progress or cannot be cancelled at this stage.' });
+    if (!['pending', 'processing', 'in_progress'].includes(order.status) || !order.cancel_eligible) {
+      return res.status(400).json({ success: false, error: 'Order cannot be cancelled at this stage or cancellation is not eligible for this service.' });
     }
 
     if (order.provider_order_id) {
@@ -1575,8 +1686,13 @@ app.post('/api/admin/users/:id/adjust-wallet', verifyAdmin, (req: AuthenticatedR
 // Admin Orders Management
 app.get('/api/admin/orders', verifyAdmin, (req, res) => {
   const orders = db.getOrders();
+  const normalized = orders.map(o => ({
+    ...o,
+    target_link: o.target_link || o.link || '',
+    link: o.link || o.target_link || ''
+  }));
   // Administrator sees full pricing transparency: provider_charge, customer_charge, markup_amount, net_profit
-  res.json({ success: true, orders });
+  res.json({ success: true, orders: normalized });
 });
 
 // Admin Sync Order Status with Provider
@@ -2018,6 +2134,9 @@ app.get('/api/admin/settings', verifyAdmin, (req, res) => {
     fivesim_api_key_encrypted,
     ...safeSettings
   } = settings;
+  safeSettings.peakerr_key_configured = Boolean(settings.peakerr_key_configured || peakerr.isLive());
+  safeSettings.eagainsmedia_key_configured = Boolean(settings.eagainsmedia_key_configured || eagainsmedia.isLive());
+  safeSettings.fivesim_key_configured = Boolean(settings.fivesim_key_configured || fiveSim.isLive());
   res.json({ success: true, settings: safeSettings });
 });
 
@@ -2033,10 +2152,18 @@ const handleUpdateSettings = (req: AuthenticatedRequest, res: any) => {
     delete updates.peakerr_api_key; // never echo the raw key back in the settings response
   }
 
+  if (updates.peakerr_api_url) {
+    peakerr.setApiUrl(updates.peakerr_api_url);
+  }
+
   if (updates.eagainsmedia_api_key) {
     eagainsmedia.setApiKey(updates.eagainsmedia_api_key);
     db.saveProviderApiKey('eagainsmedia', updates.eagainsmedia_api_key, admin, req.ip || '127.0.0.1');
     delete updates.eagainsmedia_api_key;
+  }
+
+  if (updates.eagainsmedia_api_url) {
+    eagainsmedia.setApiUrl(updates.eagainsmedia_api_url);
   }
 
   if (updates.fivesim_api_key) {
